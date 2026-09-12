@@ -1,30 +1,91 @@
-/** The two streaming features: re-explanation lenses, and the question thread. */
+/**
+ * Help beyond the lesson text: re-explanation lenses, the question thread, and
+ * the FAQ written at authoring time.
+ *
+ * Each piece is gated on its own. A lens works if the course shipped it or a
+ * reader model can write it; the ask box needs a reader model; the FAQ needs
+ * nothing. A reader with no model at all still gets every precomputed lens.
+ */
 
 import { errCopy, streamSSE } from "./api.js";
-import { esc, prose } from "./markup.js";
-import { $, S, canGenerate } from "./state.js";
+import { esc, inl, prose } from "./markup.js";
+import { $, S, can } from "./state.js";
 
 let lensCtl = null;
 let askCtl = null;
 
-function markup() {
-  if (!canGenerate()) return "";
+const NO_LENS = "Not included with this course, and there's no model here to write it.";
 
-  const lenses = (S.lenses || [])
-    .map((l) => `<button class="lens" data-lens="${esc(l.id)}" aria-pressed="false">${esc(l.label)}</button>`)
+function hasStoredLens(content, id) {
+  const text = content && content.lenses && content.lenses[id];
+  return !!(text && text.trim());
+}
+
+/** Per lens, not all-or-nothing: a course written before a lens existed keeps the rest. */
+function lensMarkup(content) {
+  const live = can("liveLenses");
+  const lenses = S.lenses || [];
+  if (!lenses.some((l) => live || hasStoredLens(content, l.id))) return "";
+
+  const buttons = lenses
+    .map((l) => {
+      const ok = live || hasStoredLens(content, l.id);
+      return (
+        `<button class="lens" data-lens="${esc(l.id)}" aria-pressed="false"` +
+        (ok ? "" : ` disabled title="${esc(NO_LENS)}"`) +
+        `>${esc(l.label)}</button>`
+      );
+    })
     .join("");
 
   return (
     '<div class="block"><div class="block-head"><h2>Not landing? Try another angle</h2></div>' +
-    `<div class="lens-row">${lenses}<button class="lens" id="lensStop" hidden>Stop</button></div>` +
-    '<div class="stream" id="lensOut"></div><div id="lensErr"></div></div>' +
+    `<div class="lens-row">${buttons}<button class="lens" id="lensStop" hidden>Stop</button></div>` +
+    '<div class="stream" id="lensOut"></div><div id="lensErr"></div></div>'
+  );
+}
+
+/** Questions and answers are model text: escaped by inl/prose, never raw. */
+function faqItems(faq) {
+  return faq
+    .map(
+      (item) =>
+        `<details class="hint faq-item"><summary>${inl(item.q)}</summary>` +
+        `<div class="faq-a">${prose(item.a)}</div></details>`,
+    )
+    .join("");
+}
+
+function askMarkup(content) {
+  const faq = (content && content.faq) || [];
+
+  if (!can("liveTutor")) {
+    // No chat box without a model. Matching free text against a fixed list and
+    // calling it an answer would be worse than an honest list a strong model wrote.
+    if (!faq.length) return "";
+    return (
+      '<div class="block"><div class="block-head"><h2>Common questions about this lesson</h2></div>' +
+      `<div class="faq">${faqItems(faq)}</div></div>`
+    );
+  }
+
+  return (
     '<div class="block"><div class="block-head"><h2>Ask about this lesson</h2></div>' +
     '<div class="thread" id="thread"></div>' +
     '<form class="ask-form" id="askForm">' +
     '<textarea id="askBox" rows="1" placeholder="What still doesn\'t make sense?" aria-label="Your question about this lesson"></textarea>' +
     '<button class="btn btn-primary" type="submit" id="askBtn">Ask</button>' +
-    '</form><div id="askErr"></div></div>'
+    '</form><div id="askErr"></div>' +
+    (faq.length
+      ? `<details class="hint faq-more"><summary>Already answered (${faq.length})</summary>` +
+        `<div class="faq">${faqItems(faq)}</div></details>`
+      : "") +
+    "</div>"
   );
+}
+
+function markup(content) {
+  return lensMarkup(content) + askMarkup(content);
 }
 
 function wire(content, ref) {
@@ -32,7 +93,7 @@ function wire(content, ref) {
   if (row) {
     row.addEventListener("click", (ev) => {
       const b = ev.target.closest(".lens");
-      if (!b) return;
+      if (!b || b.disabled) return;
       if (b.id === "lensStop") {
         if (lensCtl) lensCtl.abort();
         return;

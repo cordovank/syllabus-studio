@@ -143,6 +143,11 @@ class PracticeItem(Base):
     hint: str = ""
 
 
+class FaqItem(Base):
+    q: str
+    a: str
+
+
 class LessonContent(Base):
     big_idea: str = ""
     sections: list[Section] = Field(default_factory=list)
@@ -153,3 +158,8 @@ class LessonContent(Base):
     generated_at: int = Field(default_factory=now_ms)
     provider: str = ""
     model: str = ""
+    # Both default empty so every existing row, bundle and test reads unchanged.
+    lenses: dict[str, str] = Field(default_factory=dict)
+    """lens id -> the full re-explanation, written at authoring time."""
+    faq: list[FaqItem] = Field(default_factory=list)
+    """Likely questions about this lesson, answered at authoring time."""

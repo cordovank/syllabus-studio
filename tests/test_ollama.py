@@ -20,6 +20,24 @@ from syllabus_studio.llm.providers.ollama_provider import OllamaProvider
 SENT: list[httpx.Request] = []
 
 
+LOCAL_DAEMON = "http://localhost:11434"
+
+
+def ollama_settings(**overrides) -> Settings:
+    """Settings as the app would load them, .env included, so model names are never
+    hardcoded here: tests assert on whatever models are configured.
+
+    The host is pinned to a local daemon because that is what the mock stands in
+    for — a hosted SS_OLLAMA_HOST in .env would otherwise change the error hints
+    these tests check.
+    """
+    return Settings(llm_provider="ollama", **{"ollama_host": LOCAL_DAEMON, **overrides})
+
+
+def configured_model(tier: str = "default") -> str:
+    return ollama_settings().model_for_tier(tier, "ollama")
+
+
 def make_provider(handler, **overrides) -> OllamaProvider:
     """A provider wired to a fake daemon. ``handler(request) -> httpx.Response``."""
     SENT.clear()
@@ -28,7 +46,7 @@ def make_provider(handler, **overrides) -> OllamaProvider:
         SENT.append(request)
         return handler(request)
 
-    settings = Settings(_env_file=None, llm_provider="ollama", **overrides)
+    settings = ollama_settings(**overrides)
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(record), base_url=settings.ollama_host.rstrip("/")
     )
@@ -54,7 +72,7 @@ async def test_complete_sends_a_well_formed_chat_request() -> None:
     assert out == "hello from a local model"
     assert str(SENT[0].url).endswith("/api/chat")
     body = body_of(SENT[0])
-    assert body["model"] == "qwen2.5:14b"
+    assert body["model"] == configured_model("default")
     assert body["stream"] is False
     assert body["messages"] == [{"role": "user", "content": "hi"}]
     assert body["options"]["num_predict"] > 0
@@ -111,13 +129,14 @@ async def test_streaming_ignores_keepalive_blank_lines() -> None:
 
 
 async def test_a_missing_model_says_how_to_pull_it() -> None:
-    p = make_provider(lambda r: httpx.Response(404, json={"error": 'model "qwen2.5:14b" not found'}))
+    model = configured_model("default")
+    p = make_provider(lambda r: httpx.Response(404, json={"error": f'model "{model}" not found'}))
 
     with pytest.raises(LLMError) as err:
         await p.complete([Message.user("hi")])
 
     assert err.value.code == "not_configured"
-    assert "ollama pull qwen2.5:14b" in err.value.message
+    assert f"ollama pull {model}" in err.value.message
 
 
 async def test_a_dead_daemon_is_not_configured_not_an_outage() -> None:
@@ -176,7 +195,8 @@ def tags_reply(*names: str) -> httpx.Response:
 
 
 async def test_probe_reports_ready_when_every_model_is_pulled() -> None:
-    p = make_provider(lambda r: tags_reply("llama3.2:3b", "qwen2.5:14b", "qwen2.5:32b"))
+    pulled = ollama_settings().models_for("ollama").values()
+    p = make_provider(lambda r: tags_reply(*pulled))
 
     out = await p.probe()
 
@@ -186,12 +206,15 @@ async def test_probe_reports_ready_when_every_model_is_pulled() -> None:
 
 
 async def test_probe_names_what_is_missing() -> None:
-    p = make_provider(lambda r: tags_reply("llama3.2:3b"))
+    # A model no tier is configured to use, so every configured one is missing
+    # whatever .env says — even when all three tiers share one model.
+    p = make_provider(lambda r: tags_reply("not-a-configured-model:1b"))
 
     out = await p.probe()
 
     assert out["available"] is False
-    assert "qwen2.5:14b" in out["missingModels"]
+    assert configured_model("default") in out["missingModels"]
+    assert set(out["missingModels"]) == set(ollama_settings().models_for("ollama").values())
     assert "ollama pull" in out["detail"]
 
 

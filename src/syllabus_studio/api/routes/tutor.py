@@ -4,10 +4,16 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from syllabus_studio.core.lessons import LessonError
-from syllabus_studio.core.tutor import ask, available_lenses, explain_with_lens
+from syllabus_studio.core.tutor import (
+    ask,
+    available_lenses,
+    explain_with_lens,
+    precomputed_lens,
+    replay,
+)
 from syllabus_studio.llm import Message
 
-from ..deps import CourseDep, ProviderDep, StoreDep
+from ..deps import CourseDep, ReaderProviderDep, StoreDep
 from ..schemas import AskRequest, LensRequest
 from ..sse import stream_response
 
@@ -30,9 +36,20 @@ async def _require_lesson(store: StoreDep, course_id: str, lesson_id: str):  # n
 
 @router.post("/courses/{course_id}/lessons/{lesson_id}/lens")
 async def lens(
-    lesson_id: str, body: LensRequest, course: CourseDep, provider: ProviderDep, store: StoreDep
+    lesson_id: str,
+    body: LensRequest,
+    course: CourseDep,
+    provider: ReaderProviderDep,
+    store: StoreDep,
 ) -> StreamingResponse:
     content = await _require_lesson(store, course.id, lesson_id)
+
+    # 1. precomputed: no provider touched, not even describe()
+    stored = precomputed_lens(content, body.lens)
+    if stored is not None:
+        return stream_response(replay(stored))
+
+    # 2. live, or 3. not_configured — both decided inside, before the stream opens
     source = explain_with_lens(
         provider, course=course, lesson_id=lesson_id, content=content, lens=body.lens
     )
@@ -41,7 +58,11 @@ async def lens(
 
 @router.post("/courses/{course_id}/lessons/{lesson_id}/ask")
 async def ask_question(
-    lesson_id: str, body: AskRequest, course: CourseDep, provider: ProviderDep, store: StoreDep
+    lesson_id: str,
+    body: AskRequest,
+    course: CourseDep,
+    provider: ReaderProviderDep,
+    store: StoreDep,
 ) -> StreamingResponse:
     content = await _require_lesson(store, course.id, lesson_id)
     turns = [Message(role=t.role, content=t.content) for t in body.turns]

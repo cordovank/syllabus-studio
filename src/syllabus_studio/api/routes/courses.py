@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Response, status
+from fastapi.responses import StreamingResponse
 
+from syllabus_studio.core.authoring import enrich_course
 from syllabus_studio.core.builder import build_course
 from syllabus_studio.core.models import Course, CourseSummary, LessonProgress
+from syllabus_studio.llm import LLMError
 from syllabus_studio.storage import CourseBundle, suggested_filename
 
-from ..deps import CourseDep, ProviderDep, SettingsDep, StoreDep
+from ..deps import AuthorProviderDep, CourseDep, SettingsDep, StoreDep
 from ..schemas import BuildCourseRequest, ImportRequest
+from ..sse import event_response
 
 router = APIRouter(tags=["courses"])
 
@@ -29,12 +35,41 @@ async def list_courses(store: StoreDep) -> list[CourseSummary]:
 
 @router.post("/courses", response_model=Course, status_code=status.HTTP_201_CREATED)
 async def create_course(
-    body: BuildCourseRequest, provider: ProviderDep, store: StoreDep, settings: SettingsDep
+    body: BuildCourseRequest, provider: AuthorProviderDep, store: StoreDep, settings: SettingsDep
 ) -> Course:
     course = await build_course(
         provider, syllabus=body.syllabus, name=body.name.strip(), depth=body.depth
     )
     return await store.save_course(course)
+
+
+@router.post("/courses/{course_id}/enrich")
+async def enrich_whole_course(
+    course: CourseDep,
+    provider: AuthorProviderDep,
+    store: StoreDep,
+    lenses: bool = True,
+    faq: bool = True,
+    force: bool = False,
+) -> StreamingResponse:
+    """Enrich every written lesson. Takes minutes, so it streams ``progress`` frames
+    ``{lessonId, stage, done, total}`` and ends on ``done``."""
+    # Checked before the stream opens, so "no author model" is an honest 503
+    # rather than a 200 whose every lesson fails.
+    if not provider.describe().get("available", True):
+        raise LLMError("not_configured", "No authoring model is configured.")
+
+    async def events() -> AsyncIterator[tuple[str, dict[str, Any]]]:
+        tally: dict[str, int] = {}
+        async for progress in enrich_course(
+            provider, store, course=course, lenses=lenses, faq=faq, force=force
+        ):
+            if progress["stage"] != "started":
+                tally[progress["stage"]] = tally.get(progress["stage"], 0) + 1
+            yield "progress", progress
+        yield "done", {"total": len(course.all_lessons()), "outcomes": tally}
+
+    return event_response(events())
 
 
 @router.get("/courses/{course_id}", response_model=Course)

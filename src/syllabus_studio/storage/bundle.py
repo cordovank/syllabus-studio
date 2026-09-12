@@ -15,15 +15,37 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from syllabus_studio.core.ids import course_id as new_course_id
-from syllabus_studio.core.models import Course, LessonContent, now_ms
+from syllabus_studio.core.models import Base, Course, LessonContent, now_ms
 
 FORMAT = "syllabus-studio/course-bundle"
+# Not bumped for lenses, faq or provenance: they are additive, and unknown keys
+# are ignored, so a new bundle still installs on an old checkout (minus the
+# extras). Bumping would make an old `parse` reject it outright.
 FORMAT_VERSION = 1
 
 
 def _camel(s: str) -> str:
     head, *rest = s.split("_")
     return head + "".join(w.capitalize() for w in rest)
+
+
+class Provenance(Base):
+    """Who and what produced a bundle's content.
+
+    An open catalog is only as trustworthy as its worst entry, so a bundle says
+    which model wrote it and whether a person has read it. The defaults describe
+    the honest unknown: no recorded model, not reviewed.
+    """
+
+    author_provider: str = ""
+    author_model: str = ""
+    depth: str = ""
+    generated_at: int = 0
+    enriched: list[str] = Field(default_factory=list)
+    """Authoring passes that ran over every lesson, e.g. ["lenses", "faq"]."""
+    human_reviewed: bool = False
+    reviewer: str = ""
+    note: str = ""
 
 
 class CourseBundle(BaseModel):
@@ -36,6 +58,7 @@ class CourseBundle(BaseModel):
     license: str = ""
     course: Course
     lessons: dict[str, LessonContent] = Field(default_factory=dict)
+    provenance: Provenance = Field(default_factory=Provenance)
 
     # -- build -------------------------------------------------------------
 

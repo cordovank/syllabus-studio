@@ -21,6 +21,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
+from starlette.types import Scope
 
 from syllabus_studio import __version__
 from syllabus_studio.api import errors
@@ -34,6 +36,20 @@ log = logging.getLogger("syllabus_studio")
 
 WEB_DIR = Path(__file__).parent / "web"
 DEMO_BUNDLE = Path(__file__).parent / "data" / "demo_course.json"
+
+# There is no build step, so asset URLs never change between versions. Without an
+# explicit policy browsers cache ES modules heuristically and keep running old JS
+# against a new API — which is how the capability chip once read "none (read only)"
+# on a working author model. "no-cache" still uses the cache, but revalidates via
+# the ETag first, so an unchanged file costs a 304.
+NO_CACHE = {"Cache-Control": "no-cache"}
+
+
+class RevalidatingStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        response = await super().get_response(path, scope)
+        response.headers.update(NO_CACHE)
+        return response
 
 
 async def seed_demo_course(store: CourseStore) -> None:
@@ -71,7 +87,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await store.startup()
         app.state.settings = settings
         app.state.store = store
-        app.state.provider = get_provider(settings)
+        app.state.providers = {
+            "author": get_provider(settings, role="author"),
+            "reader": get_provider(settings, role="reader"),
+        }
         if settings.seed_demo_course:
             try:
                 await seed_demo_course(store)
@@ -103,11 +122,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     if WEB_DIR.exists():
         app.mount(
-            "/static", StaticFiles(directory=WEB_DIR / "static"), name="static"
+            "/static", RevalidatingStaticFiles(directory=WEB_DIR / "static"), name="static"
         )
 
         @app.get("/", include_in_schema=False)
         async def index() -> FileResponse:
-            return FileResponse(WEB_DIR / "index.html")
+            return FileResponse(WEB_DIR / "index.html", headers=NO_CACHE)
 
     return app

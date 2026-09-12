@@ -165,3 +165,28 @@ LESSON: {lesson.title}
 
 LESSON CONTENT:
 {_lesson_digest(content)}"""
+
+
+def faq_prompt(*, course: Course, lesson: Lesson, content: LessonContent, count: int = 10) -> str:
+    """Runs at authoring time on a strong model, so a reader with no model still gets
+    answers written with the whole lesson in view."""
+    return f"""[[SS:FAQ]]
+Here is a lesson from a self-paced course. Write the questions a learner actually asks after
+reading it, and answer each one.
+
+LESSON: {lesson.title}
+COURSE: {course.title}
+
+CONTENT:
+{_lesson_digest(content)}
+
+Rules:
+- Write {count} questions. Each is a real point of confusion, a tempting misreading, or an edge
+  case the lesson raises but does not settle. Never a definition-recall question.
+- Skip any question whose answer is already a sentence in the lesson above. The reader has that.
+- Phrase questions the way a learner would ask them, in the first person where natural.
+- Each answer is under 120 words, direct, and grounded in this lesson's subject. No preamble.
+- You may use **bold**, `code` and - bullets inside answers.
+
+Reply with ONLY this JSON array and nothing else:
+[{{"q":"string","a":"string"}}]"""

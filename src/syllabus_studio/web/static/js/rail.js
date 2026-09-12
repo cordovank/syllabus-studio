@@ -1,7 +1,7 @@
 /** The left rail: progress ring, module accordion, lesson list. */
 
 import { esc } from "./markup.js";
-import { $, S, courseStats, hueOf, lessonState } from "./state.js";
+import { $, S, can, courseStats, hueOf, lessonState } from "./state.js";
 
 function ringSvg(pct) {
   const r = 22;
@@ -85,13 +85,19 @@ export function renderPicker() {
 
 export function renderCapChip() {
   const h = S.health;
-  const on = !!(h && h.canGenerate);
+  const on = can("authorCourses");
   $("capLed").setAttribute("data-off", String(!on));
   if (!h) {
     $("capText").textContent = "connecting…";
     return;
   }
-  const provider = (h.llm && h.llm.provider) || "none";
+  const llm = h.llm || {};
+  const name = (role) => (llm[role] && llm[role].provider) || "none";
+  // Always name both roles. Collapsing a shared provider to one word read as
+  // "which role am I?" rather than "which model serves each job".
   const store = (h.storage && h.storage.backend) || "?";
-  $("capText").textContent = on ? `${provider} · ${store}` : `${provider} (read only) · ${store}`;
+  $("capText").textContent = `author ${name("author")} · reader ${name("reader")} · ${store}`;
+  $("capChip").title =
+    "author: builds courses, writes and enriches lessons\n" +
+    "reader: the ask box and lenses that weren't precomputed";
 }

@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from syllabus_studio.core.authoring import AuthoringError
 from syllabus_studio.core.builder import BuildError
 from syllabus_studio.core.lessons import LessonError
 from syllabus_studio.core.tutor import TutorError
@@ -45,6 +46,10 @@ def install(app: FastAPI) -> None:
 
     @app.exception_handler(LessonError)
     async def _lesson(_: Request, exc: LessonError) -> JSONResponse:
+        return _payload(exc.code, exc.message)
+
+    @app.exception_handler(AuthoringError)
+    async def _authoring(_: Request, exc: AuthoringError) -> JSONResponse:
         return _payload(exc.code, exc.message)
 
     @app.exception_handler(TutorError)

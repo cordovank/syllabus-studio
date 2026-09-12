@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, status
 
+from syllabus_studio.core.authoring import enrich_lesson
 from syllabus_studio.core.lessons import LessonError, write_lesson
 from syllabus_studio.core.models import Course, LessonContent, LessonProgress
 
-from ..deps import CourseDep, ProviderDep, SettingsDep, StoreDep
+from ..deps import AuthorProviderDep, CourseDep, SettingsDep, StoreDep
 from ..schemas import ProgressPatch
 
 router = APIRouter(tags=["lessons"])
@@ -41,7 +42,7 @@ async def put_lesson(
 async def generate_lesson(
     lesson_id: str,
     course: CourseDep,
-    provider: ProviderDep,
+    provider: AuthorProviderDep,
     store: StoreDep,
     settings: SettingsDep,
     force: bool = False,
@@ -56,11 +57,43 @@ async def generate_lesson(
         provider,
         course=course,
         lesson_id=lesson_id,
-        model_name=settings.model_for_tier("default"),
+        model_name=settings.model_for_tier("default", provider.name),
     )
     await store.save_lesson(course.id, lesson_id, content)
     await store.set_progress(course.id, lesson_id, LessonProgress(built=True))
     return content
+
+
+@router.post(
+    "/courses/{course_id}/lessons/{lesson_id}/enrich", response_model=LessonContent
+)
+async def enrich_one_lesson(
+    lesson_id: str,
+    course: CourseDep,
+    provider: AuthorProviderDep,
+    store: StoreDep,
+    lenses: bool = True,
+    faq: bool = True,
+    force: bool = False,
+) -> LessonContent:
+    """Precompute lenses and/or FAQ for a written lesson; only what is missing unless
+    ``force``. Returns what was stored, which may be partial if a pass failed."""
+    content = await store.get_lesson(course.id, lesson_id)
+    if content is None:
+        raise LessonError("not_found", "Write the lesson first — there is nothing to enrich yet.")
+
+    enriched = await enrich_lesson(
+        provider,
+        course=course,
+        lesson_id=lesson_id,
+        content=content,
+        lenses=lenses,
+        faq=faq,
+        force=force,
+    )
+    if enriched != content:
+        await store.save_lesson(course.id, lesson_id, enriched)
+    return enriched
 
 
 # There is deliberately no lesson delete: rewriting overwrites in place, which

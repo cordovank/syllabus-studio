@@ -73,3 +73,19 @@ async def test_camel_case_is_the_wire_format(course: Course) -> None:
     payload = content.model_dump(by_alias=True)
     assert "bigIdea" in payload and "keyTerms" in payload
     assert "big_idea" not in payload
+
+
+async def test_a_lesson_row_stored_before_lenses_and_faq_reads_them_as_empty(
+    store, course: Course
+) -> None:
+    await store.save_course(course)
+    old_body = '{"bigIdea": "written long ago", "sections": [], "generatedAt": 1}'
+    await store._write(
+        "INSERT INTO lessons (course_id, lesson_id, generated_at, body) VALUES (?, ?, ?, ?)",
+        ("c1", "m1l1", 1, old_body),
+    )
+
+    content = await store.get_lesson("c1", "m1l1")
+
+    assert content is not None and content.big_idea == "written long ago"
+    assert content.lenses == {} and content.faq == []

@@ -16,7 +16,7 @@ import {
 } from "./library.js";
 import { goLesson, openCourse, renderOverview } from "./lesson.js";
 import { renderCapChip, renderPicker, renderRail } from "./rail.js";
-import { $, S, toast } from "./state.js";
+import { $, S, can, toast } from "./state.js";
 
 function wireChrome() {
   $("newCourseBtn").addEventListener("click", openNewSheet);
@@ -115,6 +115,16 @@ function wireChrome() {
   });
 }
 
+/** "New course" and "Build the course" need the author role. */
+function gateAuthoring() {
+  const ok = can("authorCourses");
+  for (const id of ["newCourseBtn", "buildBtn"]) {
+    const b = $(id);
+    b.disabled = !ok;
+    b.title = ok ? "" : "Building a course needs an authoring model, and none is configured.";
+  }
+}
+
 async function boot() {
   wireChrome();
 
@@ -130,6 +140,7 @@ async function boot() {
     return;
   }
   renderCapChip();
+  gateAuthoring();
 
   try {
     await refreshCourses();
@@ -140,11 +151,19 @@ async function boot() {
 
   if (!S.courses.length) {
     renderPicker();
-    $("stage").innerHTML =
-      '<div class="state"><h2>No courses yet</h2>' +
-      "<p>Paste a syllabus to build one, or install a course from the catalog.</p>" +
-      '<button class="btn btn-primary" id="emptyNew">Turn a syllabus into a course</button></div>';
-    $("emptyNew").addEventListener("click", openNewSheet);
+    if (can("authorCourses")) {
+      $("stage").innerHTML =
+        '<div class="state"><h2>No courses yet</h2>' +
+        "<p>Paste a syllabus to build one, or install a course from the catalog.</p>" +
+        '<button class="btn btn-primary" id="emptyNew">Turn a syllabus into a course</button></div>';
+      $("emptyNew").addEventListener("click", openNewSheet);
+    } else {
+      $("stage").innerHTML =
+        '<div class="state"><h2>No courses yet</h2>' +
+        "<p>Install one from the catalog. This install has no authoring model, so it reads courses rather than building them.</p>" +
+        '<button class="btn btn-primary" id="emptyNew">Browse courses</button></div>';
+      $("emptyNew").addEventListener("click", openCatalog);
+    }
     return;
   }
 

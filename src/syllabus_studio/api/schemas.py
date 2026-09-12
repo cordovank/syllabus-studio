@@ -53,13 +53,25 @@ class ImportRequest(Base):
     keep_id: bool = False
 
 
+class Capabilities(Base):
+    """What this install can do, each answered by the role that serves it."""
+
+    author_courses: bool
+    """Author role: build courses, write and enrich lessons."""
+    live_tutor: bool
+    """Reader role: the ask box."""
+    live_lenses: bool
+    """Reader role: lenses that were not precomputed. Precomputed ones need nothing."""
+
+
 class HealthResponse(Base):
     status: str = "ok"
     version: str
     llm: dict[str, Any]
+    """``{"author": {...}, "reader": {...}}`` — each ``describe()`` merged with ``probe()``."""
     storage: dict[str, Any]
     lenses: list[dict[str, str]]
-    can_generate: bool
+    capabilities: Capabilities
 
 
 class ErrorBody(Base):

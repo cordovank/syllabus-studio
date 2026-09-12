@@ -20,13 +20,20 @@ def get_store(request: Request) -> CourseStore:
     return request.app.state.store
 
 
-def get_provider(request: Request) -> BaseProvider:
-    return request.app.state.provider
+def get_author_provider(request: Request) -> BaseProvider:
+    return request.app.state.providers["author"]
+
+
+def get_reader_provider(request: Request) -> BaseProvider:
+    return request.app.state.providers["reader"]
 
 
 SettingsDep = Annotated[Settings, Depends(get_settings_dep)]
 StoreDep = Annotated[CourseStore, Depends(get_store)]
-ProviderDep = Annotated[BaseProvider, Depends(get_provider)]
+# There is deliberately no role-less ProviderDep: every route must say whose
+# model it spends — the author's, or the reader's.
+AuthorProviderDep = Annotated[BaseProvider, Depends(get_author_provider)]
+ReaderProviderDep = Annotated[BaseProvider, Depends(get_reader_provider)]
 
 
 async def load_course(course_id: str, store: StoreDep) -> Course:

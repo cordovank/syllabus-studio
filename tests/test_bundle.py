@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
-from syllabus_studio.core.models import Course, LessonContent, LessonProgress
-from syllabus_studio.storage import CourseBundle
+from syllabus_studio.core.models import Course, FaqItem, LessonContent, LessonProgress
+from syllabus_studio.storage import CatalogEntry, CourseBundle, Provenance
 
 
 def test_bundle_drops_progress(course: Course) -> None:
@@ -59,3 +61,97 @@ def test_the_shipped_demo_bundle_parses() -> None:
     assert bundle.lessons, "the sample course ships with one lesson already written"
     written = next(iter(bundle.lessons.values()))
     assert written.quiz and written.key_terms and written.worked.steps
+
+
+# --- precomputed tutoring and provenance (spec 001, stage 2) ---------------
+
+
+def _enriched() -> LessonContent:
+    return LessonContent(
+        big_idea="idea",
+        lenses={"eli5": "Like you're five.", "rigor": "Formally."},
+        faq=[FaqItem(q="Why not X?", a="Because Y.")],
+    )
+
+
+def test_lenses_and_faq_survive_a_round_trip(course: Course) -> None:
+    bundle = CourseBundle.build(course, {"m1l1": _enriched()})
+    again = CourseBundle.parse(bundle.to_json()).lessons["m1l1"]
+
+    assert again.lenses == {"eli5": "Like you're five.", "rigor": "Formally."}
+    assert again.faq == [FaqItem(q="Why not X?", a="Because Y.")]
+
+
+def test_a_bundle_with_neither_new_field_still_parses(course: Course) -> None:
+    payload = CourseBundle.build(course, {"m1l1": _enriched()}).model_dump(by_alias=True)
+    for lesson in payload["lessons"].values():
+        del lesson["lenses"], lesson["faq"]
+    del payload["provenance"]
+
+    bundle = CourseBundle.parse(payload)
+
+    lesson = bundle.lessons["m1l1"]
+    assert lesson.big_idea == "idea"
+    assert lesson.lenses == {} and lesson.faq == []
+    assert bundle.provenance == Provenance()
+
+
+def test_the_shipped_v1_demo_bundle_reads_with_empty_extras() -> None:
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "src/syllabus_studio/data/demo_course.json"
+    bundle = CourseBundle.read(path)
+    assert all(not c.lenses and not c.faq for c in bundle.lessons.values())
+
+
+def test_unknown_keys_are_ignored_so_newer_bundles_install_on_older_code(course: Course) -> None:
+    # What lets a new bundle install on an old checkout: the old models simply
+    # drop fields they don't know. Pinned here, since forbidding extras anywhere
+    # in the tree would quietly break it.
+    payload = CourseBundle.build(course, {"m1l1": _enriched()}).model_dump(by_alias=True)
+    payload["somethingFromTheFuture"] = {"x": 1}
+    payload["lessons"]["m1l1"]["alsoFromTheFuture"] = [1, 2]
+    payload["provenance"]["futureField"] = True
+
+    bundle = CourseBundle.parse(payload)
+    assert bundle.lessons["m1l1"].big_idea == "idea"
+
+
+def test_the_new_fields_do_not_bump_the_format_version(course: Course) -> None:
+    payload = CourseBundle.build(course, {"m1l1": _enriched()}).model_dump(by_alias=True)
+    assert payload["formatVersion"] == 1
+
+
+def test_provenance_defaults_are_sane_and_unreviewed_unless_set(course: Course) -> None:
+    bundle = CourseBundle.build(course, {})
+    p = bundle.provenance
+
+    assert p.human_reviewed is False
+    assert p.reviewer == "" and p.author_model == "" and p.enriched == []
+    assert p.generated_at == 0
+
+    reviewed = Provenance(human_reviewed=True, reviewer="Ada", enriched=["lenses", "faq"])
+    bundle.provenance = reviewed
+    again = CourseBundle.parse(bundle.to_json())
+    assert again.provenance.human_reviewed is True
+    assert again.provenance.reviewer == "Ada"
+
+
+def test_the_new_fields_are_camel_case_on_the_wire(course: Course) -> None:
+    bundle = CourseBundle.build(course, {"m1l1": _enriched()})
+    payload = json.loads(bundle.to_json())
+
+    assert {"humanReviewed", "authorModel", "authorProvider", "generatedAt"} <= set(
+        payload["provenance"]
+    )
+    entry = CatalogEntry(id="x", title="X", author_model="m", human_reviewed=True, lesson_count=3)
+    wire = entry.model_dump(by_alias=True)
+    assert {"authorModel", "humanReviewed", "lessonCount"} <= set(wire)
+    assert "author_model" not in wire
+
+
+def test_a_catalog_entry_without_provenance_mirrors_still_loads() -> None:
+    entry = CatalogEntry.model_validate({"id": "applied-ml", "title": "Applied ML"})
+    assert entry.human_reviewed is False
+    assert entry.lesson_count is None
+    assert entry.enriched == []

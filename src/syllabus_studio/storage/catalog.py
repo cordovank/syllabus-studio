@@ -24,12 +24,16 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, Field
 
+from syllabus_studio.core.models import Base
+
 from .bundle import CourseBundle
 
 LOCAL_CATALOG = Path(__file__).resolve().parents[1] / "data" / "catalog.json"
 
 
-class CatalogEntry(BaseModel):
+class CatalogEntry(Base):
+    # Base, for the camelCase aliases: the provenance mirrors below are the
+    # first multi-word fields here, and the wire format is camelCase.
     id: str
     title: str
     description: str = ""
@@ -38,6 +42,13 @@ class CatalogEntry(BaseModel):
     tags: list[str] = Field(default_factory=list)
     url: str = ""
     """Absolute URL of the bundle, or a path relative to the catalog document."""
+
+    # Optional mirrors of the bundle's provenance, so a listing can be judged
+    # before anyone downloads it. Absent means "the catalog didn't say".
+    author_model: str = ""
+    human_reviewed: bool = False
+    lesson_count: int | None = None
+    enriched: list[str] = Field(default_factory=list)
 
 
 class Catalog(BaseModel):

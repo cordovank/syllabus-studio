@@ -3,7 +3,7 @@
 import { api, errCopy } from "./api.js";
 import { esc, inl, prose } from "./markup.js";
 import { renderPicker, renderRail } from "./rail.js";
-import { $, S, allLessons, canGenerate, courseStats, findLesson, hueOf, lessonState, toast } from "./state.js";
+import { $, S, allLessons, can, courseStats, findLesson, hueOf, lessonState, toast } from "./state.js";
 import { openFlashcards } from "./flashcards.js";
 import { mountTutor } from "./tutor.js";
 
@@ -91,10 +91,18 @@ export function renderOverview() {
 }
 
 function providerBanner() {
-  if (canGenerate()) return "";
+  if (can("authorCourses")) return "";
 
-  const llm = (S.health && S.health.llm) || {};
+  const llm = (S.health && S.health.llm && S.health.llm.author) || {};
   const provider = llm.provider || "none";
+
+  // Chosen on purpose, not broken: a reader-only install. Say what works.
+  if (provider === "none") {
+    return (
+      '<div class="banner"><span>This install is set up for <b>reading</b>. Courses from the catalog work fully; ' +
+      "building courses and writing lessons needs an authoring model.</span></div>"
+    );
+  }
 
   if (provider === "echo") {
     return (
@@ -150,9 +158,12 @@ export function renderLesson() {
       '<div class="state">' +
       (S.generating
         ? '<div class="spinner"></div><h2>Writing this lesson…</h2><p>The explanation, key terms, a worked example and a set of checks. This takes 20–60 seconds.</p>'
-        : '<h2>This lesson hasn\'t been written yet</h2>' +
-          "<p>It will be written from the syllabus and the module it sits in — explanation, key terms, a worked example, questions to check yourself, and practice.</p>" +
-          '<button class="btn btn-primary" id="genBtn">Write this lesson</button>') +
+        : can("authorCourses")
+          ? '<h2>This lesson hasn\'t been written yet</h2>' +
+            "<p>It will be written from the syllabus and the module it sits in — explanation, key terms, a worked example, questions to check yourself, and practice.</p>" +
+            '<button class="btn btn-primary" id="genBtn">Write this lesson</button>'
+          : '<h2>This lesson hasn\'t been written yet</h2>' +
+            "<p>This copy of the course doesn't include it, and writing lessons needs an authoring model, which this install doesn't have.</p>") +
       "</div><div id=\"genErr\"></div>" +
       navRow();
 
@@ -231,13 +242,13 @@ export function renderLesson() {
       "</div></div>";
   }
 
-  h += mountTutor.markup();
+  h += mountTutor.markup(content);
 
   h +=
     '<div class="block" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">' +
     `<button class="btn ${prog.done ? "" : "btn-primary"}" id="doneBtn">` +
     `${prog.done ? "Mark as not complete" : "Mark lesson complete"}</button>` +
-    '<button class="btn btn-ghost btn-sm" id="regenBtn">Rewrite this lesson</button>' +
+    (can("authorCourses") ? '<button class="btn btn-ghost btn-sm" id="regenBtn">Rewrite this lesson</button>' : "") +
     "</div>" +
     navRow();
 
@@ -369,7 +380,7 @@ export async function goLesson(lessonId) {
       /* stored copy is gone; fall through and write it again */
     }
   }
-  if (canGenerate()) generateLesson(lessonId);
+  if (can("authorCourses")) generateLesson(lessonId);
 }
 
 export async function openCourse(course, lessonId) {

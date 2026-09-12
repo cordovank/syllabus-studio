@@ -17,11 +17,16 @@ SAMPLE = Path(__file__).resolve().parents[1] / "src" / "syllabus_studio" / "data
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
+    # .env is loaded into the environment, so pin everything that decides whether
+    # a test leaves the machine: the suite runs offline whatever .env says.
     return Settings(
         llm_provider="echo",
+        author_provider="",
+        reader_provider="",
         storage_backend="sqlite",
         db_path=tmp_path / "test.db",
         seed_demo_course=False,
+        catalog_url="",
     )
 
 

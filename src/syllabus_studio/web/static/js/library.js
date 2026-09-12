@@ -3,9 +3,10 @@
 import { api, errCopy } from "./api.js";
 import { esc } from "./markup.js";
 import { openCourse } from "./lesson.js";
-import { $, S, canGenerate, toast } from "./state.js";
+import { $, S, can, toast } from "./state.js";
 
 export function openNewSheet() {
+  if (!can("authorCourses")) return;
   $("newSheet").hidden = false;
   $("newSheetMsg").innerHTML = "";
   $("sylText").focus();
@@ -32,7 +33,7 @@ export async function buildCourse() {
       '<div class="err"><b>Not enough to work with</b>Paste at least the course description and the topic list — a few lines won\'t produce a useful course.</div>';
     return;
   }
-  if (!canGenerate()) {
+  if (!can("authorCourses")) {
     msg.innerHTML =
       '<div class="err"><b>No model configured</b>Building a course needs a provider. Set one in <code>.env</code> and restart the server.</div>';
     return;

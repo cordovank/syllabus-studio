@@ -1,8 +1,13 @@
 """Application settings.
 
-Everything is read from the environment (or a local ``.env``) with a working
-default, so ``python -m syllabus_studio`` starts even on a clean checkout with
-no keys configured — it just falls back to the offline ``echo`` provider.
+Everything is read from the environment with a working default, so
+``python -m syllabus_studio`` starts even on a clean checkout with no keys
+configured — it just falls back to the offline ``echo`` provider.
+
+A local ``.env`` is loaded into the environment by python-dotenv when this
+module is imported, and ``Settings`` reads only the environment. One loading
+path: the app, the tests and any library reading ``os.environ`` directly (the
+Anthropic SDK looks for ANTHROPIC_API_KEY) all see the same values.
 """
 
 from __future__ import annotations
@@ -10,6 +15,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from dotenv import find_dotenv, load_dotenv
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -17,26 +23,45 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT = Path(__file__).resolve().parent
 
 
+def load_env_file(path: Path | str | None = None) -> bool:
+    """Export ``.env`` into ``os.environ``. Returns whether a file was loaded.
+
+    Looks upward from the working directory, then falls back to the repo root.
+    ``override=False``: a variable already set in the real environment wins over
+    the file, so ``SS_LLM_PROVIDER=echo make test`` means what it says.
+    """
+    target = path or find_dotenv(usecwd=True) or REPO_ROOT / ".env"
+    return load_dotenv(target, override=False, encoding="utf-8")
+
+
+load_env_file()
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
         env_prefix="SS_",
         extra="ignore",
     )
 
     # --- llm ---------------------------------------------------------------
     llm_provider: str = "echo"
-    """Registered provider name: anthropic | ollama | echo."""
+    """Registered provider name: anthropic | ollama | echo | none."""
+
+    author_provider: str = "ollama"
+    """Provider for authoring (outlines, lessons). Empty = same as ``llm_provider``."""
+
+    reader_provider: str = "none"
+    """Provider for read-time tutoring (live lenses, ask). Empty = same as
+    ``llm_provider``. Split from the author so a reader can run a small local
+    model, or ``none``, against a course a strong model wrote."""
 
     anthropic_api_key: str = Field(
         default="",
         validation_alias=AliasChoices("ANTHROPIC_API_KEY", "SS_ANTHROPIC_API_KEY"),
     )
     """Read from the bare ANTHROPIC_API_KEY, because that is what everything else
-    in the ecosystem uses. Note that pydantic-settings reads .env for its own
-    fields only -- it never exports them to os.environ -- so any value the app
-    needs from .env has to be declared here."""
+    in the ecosystem uses. It reaches the environment from .env via
+    ``load_env_file`` above."""
 
     model_quick: str = "claude-haiku-4-5"
     model_default: str = "claude-sonnet-4-5"
@@ -57,9 +82,9 @@ class Settings(BaseSettings):
     """Only needed when talking to a hosted endpoint. A local daemon needs nothing,
     including for cloud models, once you have run `ollama signin`."""
 
-    ollama_model_quick: str = "llama3.2:3b"
-    ollama_model_default: str = "qwen2.5:14b"
-    ollama_model_complex: str = "qwen2.5:32b"
+    ollama_model_quick: str = "qwen3.6:27b"
+    ollama_model_default: str = "gpt-oss:latest"
+    ollama_model_complex: str = "qwen3.8:latest"
 
     ollama_keep_alive: str = "5m"
     """How long Ollama holds the model in memory after a call. "0" unloads
@@ -82,8 +107,15 @@ class Settings(BaseSettings):
     # --- server ------------------------------------------------------------
     host: str = "127.0.0.1"
     port: int = 8000
-    reload: bool = False
+    reload: bool = True
     cors_origins: list[str] = []
+
+    def provider_for_role(self, role: str) -> str:
+        """role: "author" | "reader". Empty override means "same as llm_provider"."""
+        if role not in ("author", "reader"):
+            raise ValueError(f"Unknown provider role {role!r}; expected 'author' or 'reader'.")
+        override = self.author_provider if role == "author" else self.reader_provider
+        return override or self.llm_provider
 
     def model_for_tier(self, tier: str, provider: str | None = None) -> str:
         """Which concrete model answers a given tier, for the active provider.

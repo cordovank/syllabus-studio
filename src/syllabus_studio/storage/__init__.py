@@ -7,7 +7,7 @@ from pathlib import Path
 from syllabus_studio.config import Settings, get_settings
 
 from .base import CourseStore, StorageError
-from .bundle import CourseBundle, suggested_filename
+from .bundle import CourseBundle, Provenance, suggested_filename
 from .catalog import Catalog, CatalogEntry, CatalogError, fetch_bundle, load_catalog
 from .remote_store import RemoteCourseStore
 from .sqlite_store import SQLiteCourseStore
@@ -18,6 +18,7 @@ __all__ = [
     "CatalogError",
     "CourseBundle",
     "CourseStore",
+    "Provenance",
     "RemoteCourseStore",
     "SQLiteCourseStore",
     "StorageError",

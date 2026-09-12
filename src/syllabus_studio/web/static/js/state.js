@@ -19,8 +19,12 @@ export const $ = (id) => document.getElementById(id);
 
 export const hueOf = (i) => HUES[i % HUES.length];
 
-export function canGenerate() {
-  return !!(S.health && S.health.canGenerate);
+/**
+ * What this install can do, from /health. Names: authorCourses, liveTutor, liveLenses.
+ * Author and reader can be different models (or none), so ask per feature.
+ */
+export function can(name) {
+  return !!(S.health && S.health.capabilities && S.health.capabilities[name]);
 }
 
 export function allLessons(course) {
