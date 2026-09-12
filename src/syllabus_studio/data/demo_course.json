@@ -1,0 +1,242 @@
+{
+  "format": "syllabus-studio/course-bundle",
+  "formatVersion": 1,
+  "exportedAt": 0,
+  "exportedBy": "syllabus-studio (bundled demo)",
+  "license": "CC BY 4.0",
+  "course": {
+    "id": "demo-applied-ml",
+    "title": "Applied Machine Learning",
+    "subtitle": "Building models that survive contact with real data",
+    "level": "intermediate",
+    "depth": "standard",
+    "skills": [
+      "Frame a vague question as a well-posed learning problem",
+      "Audit a dataset for leakage, imbalance, and shift",
+      "Split, evaluate, and diagnose a model honestly"
+    ],
+    "source": "",
+    "demo": true,
+    "origin": "bundled",
+    "progress": {},
+    "createdAt": 0,
+    "updatedAt": 0,
+    "modules": [
+      {
+        "id": "m1",
+        "title": "Framing and auditing",
+        "summary": "Everything that determines whether a project can work at all, decided before a model is fit.",
+        "outcomes": [
+          "State a learning problem precisely",
+          "Spot target leakage in a schema",
+          "Diagnose why data is missing"
+        ],
+        "lessons": [
+          {
+            "id": "m1l1",
+            "title": "What are you actually predicting?",
+            "hook": "Most failed ML projects failed at the sentence that defined the label.",
+            "minutes": 12
+          },
+          {
+            "id": "m1l2",
+            "title": "Target leakage, and how it hides",
+            "hook": "The model that scores 0.99 is usually cheating.",
+            "minutes": 14
+          },
+          {
+            "id": "m1l3",
+            "title": "Missingness is a mechanism, not a gap",
+            "hook": "Why the reason a value is absent changes what you may do about it.",
+            "minutes": 11
+          }
+        ]
+      },
+      {
+        "id": "m2",
+        "title": "Splitting and baselines",
+        "summary": "The two habits that keep every later number honest.",
+        "outcomes": [
+          "Choose a split that matches how the model will be used",
+          "Build a baseline worth beating"
+        ],
+        "lessons": [
+          {
+            "id": "m2l1",
+            "title": "Random splits are usually wrong",
+            "hook": "Grouped, stratified, and time-ordered data each break random splitting differently.",
+            "minutes": 13
+          },
+          {
+            "id": "m2l2",
+            "title": "Cross-validation without self-deception",
+            "hook": "Where the fold boundary goes decides what your score means.",
+            "minutes": 12
+          },
+          {
+            "id": "m2l3",
+            "title": "The baseline you have to beat",
+            "hook": "If you can't beat the majority class, you don't have a model.",
+            "minutes": 10
+          }
+        ]
+      },
+      {
+        "id": "m3",
+        "title": "Evaluation that means something",
+        "summary": "Picking metrics that match the decision the model is supposed to support.",
+        "outcomes": [
+          "Pick a metric from the decision, not from habit",
+          "Read a calibration curve",
+          "Set a threshold on cost"
+        ],
+        "lessons": [
+          {
+            "id": "m3l1",
+            "title": "Why accuracy lies",
+            "hook": "A 99% accurate fraud detector that never catches fraud.",
+            "minutes": 11
+          },
+          {
+            "id": "m3l2",
+            "title": "ROC-AUC vs PR-AUC",
+            "hook": "Two curves, two very different questions about the same model.",
+            "minutes": 13
+          },
+          {
+            "id": "m3l3",
+            "title": "Calibration and choosing a threshold",
+            "hook": "A score of 0.8 should mean it happens 80% of the time. Usually it doesn't.",
+            "minutes": 14
+          }
+        ]
+      },
+      {
+        "id": "m4",
+        "title": "Diagnosis and production",
+        "summary": "Telling underfitting from overfitting from silent failure — and what changes after deployment.",
+        "outcomes": [
+          "Read a learning curve",
+          "Name what drifts and how you'd detect it"
+        ],
+        "lessons": [
+          {
+            "id": "m4l1",
+            "title": "Learning curves as an instrument",
+            "hook": "One plot that tells you whether to get more data or a better model.",
+            "minutes": 12
+          },
+          {
+            "id": "m4l2",
+            "title": "What breaks after deployment",
+            "hook": "Drift, feedback loops, and the retraining cadence nobody plans for.",
+            "minutes": 13
+          }
+        ]
+      }
+    ]
+  },
+  "lessons": {
+    "m1l1": {
+      "bigIdea": "A supervised learning problem is defined by three commitments — the unit of analysis, the label, and the information available at prediction time. Get any one wrong and no model, however good, can rescue the project.",
+      "sections": [
+        {
+          "heading": "The unit of analysis",
+          "body": "Before anything else, decide what one row of your data represents. ==One row is one prediction.== If you are predicting whether a customer churns, is the unit a customer, a customer-month, or a subscription? The choice is not cosmetic: it decides how many examples you have, what \"independent\" means when you split the data, and whether a single customer can appear in both your training and test sets.\n\nA useful test: write the sentence \"for each ___, predict ___.\" If you cannot fill the first blank with a noun you could count in the database, the problem is not yet posed.",
+          "note": "A churn model built on customer-months has ~24x more rows than one built on customers — and every one of those rows is correlated with the others from the same customer."
+        },
+        {
+          "heading": "The label",
+          "body": "The label is a decision, not a discovery. \"Churned\" has to become something like: *no active subscription on the first day of a month, having had one 30 days earlier.* Every clause in that definition is a judgement call, and each one moves the base rate.\n\nTwo failure modes dominate:\n\n- **The label encodes the outcome you wanted to avoid rather than the one you can act on.** Predicting who *did* cancel is easy; predicting who *would cancel unless contacted* is the question the retention team actually has.\n- **The label is measured later than you think.** If \"churn\" is only confirmed after a 30-day grace period, a model trained on it cannot be used to make a decision on day 1 without accounting for that lag.",
+          "note": ""
+        },
+        {
+          "heading": "Information available at prediction time",
+          "body": "This is the constraint that quietly invalidates the most work. For every candidate feature, ask: **at the moment the model must produce this prediction, would this value exist, and would it have this value?**\n\nA feature like `support_tickets_last_90d` is fine. A feature like `cancellation_reason_code` is not — it exists only for rows that already churned. A feature like `account_status` may be fine historically but be overwritten in place, so that the value in your warehouse today reflects the outcome rather than the past.\n\nThe discipline that catches this is to write down, for each feature, the timestamp at which it becomes known, and compare it to the timestamp of the prediction. ==Anything known after the prediction point is leakage.==",
+          "note": "Prediction vs. inference: if the goal is to understand what drives churn, a different set of rules applies — you care about coefficient stability and confounding, not held-out accuracy."
+        }
+      ],
+      "keyTerms": [
+        {
+          "term": "Unit of analysis",
+          "definition": "What one row represents, and therefore what one prediction is about."
+        },
+        {
+          "term": "Label definition",
+          "definition": "The explicit rule that turns a messy real outcome into a value the model is trained to produce."
+        },
+        {
+          "term": "Base rate",
+          "definition": "The proportion of positive labels in the data; it shifts whenever the label definition shifts."
+        },
+        {
+          "term": "Prediction time",
+          "definition": "The moment the model must produce an answer — the cut-off that decides which features are legitimate."
+        },
+        {
+          "term": "Actionability",
+          "definition": "Whether the predicted quantity supports a decision someone can actually make."
+        }
+      ],
+      "worked": {
+        "title": "Framing a support-ticket escalation model",
+        "steps": [
+          "A support lead asks for \"a model that flags tickets that are going to blow up.\" Nothing here is yet a learning problem.",
+          "Unit of analysis: one ticket, at the moment it is first triaged. Not one customer, and not one ticket-day — because the decision (route to a senior agent) is made once, at triage.",
+          "Label: ticket was escalated to tier 3, OR its resolution time exceeded 72 hours, OR it received a CSAT of 1-2. Three clauses, chosen because all three are things the lead wants to prevent.",
+          "Check the base rate under that definition: 6.2% of tickets. Wide enough to model, narrow enough that accuracy will be useless as a metric.",
+          "Prediction-time audit: ticket text, channel, customer tenure, product area, and prior ticket count are all known at triage. Agent assigned, resolution time, and reopened_count are not — drop them.",
+          "Restate: \"For each ticket, at triage, predict the probability it will meet the escalation definition, using only fields present at triage.\" That is now a learning problem."
+        ]
+      },
+      "quiz": [
+        {
+          "q": "A team builds a hospital readmission model where each row is one hospital stay. The same patient can have several stays in the dataset. What is the most immediate consequence?",
+          "options": [
+            "The base rate will be understated",
+            "A random train/test split can put the same patient on both sides, inflating the score",
+            "The label becomes impossible to define",
+            "Tree models can no longer be used"
+          ],
+          "answer": 1,
+          "why": "Rows from one patient are correlated, so a random split leaks patient-specific signal across the boundary. This is what grouped splitting exists to prevent — it does not stop you defining a label or using any particular model family."
+        },
+        {
+          "q": "Which of these is most clearly unusable as a feature in a model that must score a loan application at the moment it is submitted?",
+          "options": [
+            "Applicant's stated annual income",
+            "Number of prior applications from the same applicant",
+            "Whether the applicant later missed a payment",
+            "The product the applicant applied for"
+          ],
+          "answer": 2,
+          "why": "A later missed payment is not known at prediction time — it is downstream of the outcome itself. The other three all exist at submission."
+        },
+        {
+          "q": "Changing the churn label from \"cancelled at any point in 12 months\" to \"cancelled within 30 days\" will most reliably change which of the following?",
+          "options": [
+            "The base rate, and therefore which metrics are informative",
+            "The number of features available",
+            "Whether cross-validation is valid",
+            "The unit of analysis"
+          ],
+          "answer": 0,
+          "why": "A narrower window means fewer positives, so the base rate drops — often far enough that accuracy becomes useless and precision/recall trade-offs dominate. The feature set, the CV scheme, and the unit of analysis are all unaffected by the label window."
+        }
+      ],
+      "practice": [
+        {
+          "task": "Take a prediction problem from your own work and write the sentence \"For each ___, at ___, predict ___, using only ___.\" Fill every blank with something concrete.",
+          "hint": "If the third blank needs a clause like \"unless we intervene,\" you have found a causal question wearing a prediction costume — note that and keep going."
+        },
+        {
+          "task": "List five candidate features for that problem and write the timestamp at which each becomes known. Mark any that are known after the prediction point.",
+          "hint": "Watch for fields that are updated in place rather than appended — their current value may not be their value at prediction time."
+        }
+      ],
+      "generatedAt": 0,
+      "provider": "bundled",
+      "model": ""
+    }
+  }
+}

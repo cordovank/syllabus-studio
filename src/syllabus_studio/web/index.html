@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Syllabus Studio</title>
+<meta name="description" content="Turn a syllabus into an interactive, self-paced course.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🎓</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+
+<div class="app" id="app" data-drawer="closed">
+  <header class="topbar">
+    <button class="icon-btn drawer-btn" id="drawerBtn" aria-label="Show course contents" aria-expanded="false">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <div class="mark">
+      <div class="mark-glyph" aria-hidden="true">S</div>
+      <div class="mark-name">Syllabus&nbsp;Studio</div>
+    </div>
+    <div class="picker">
+      <span class="eyebrow">Course</span>
+      <select id="coursePicker" aria-label="Choose a course"></select>
+    </div>
+    <div class="topbar-spacer"></div>
+    <button class="btn btn-sm" id="catalogBtn">Browse courses</button>
+    <button class="btn btn-primary btn-sm" id="newCourseBtn">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      New course
+    </button>
+  </header>
+
+  <div class="body-row">
+    <div class="rail-backdrop" id="railBackdrop"></div>
+    <nav class="rail" id="rail" aria-label="Course contents">
+      <div class="rail-head">
+        <div class="ring" id="ring"></div>
+        <div class="rail-head-meta">
+          <h2 id="railTitle">—</h2>
+          <p id="railSub">—</p>
+        </div>
+      </div>
+      <div class="rail-scroll" id="outline"></div>
+      <div class="rail-foot">
+        <div class="foot-row">
+          <span class="cap-chip" id="capChip"><span class="cap-led" id="capLed"></span><span id="capText">checking…</span></span>
+          <div style="flex:1 1 auto"></div>
+          <button class="btn btn-ghost btn-sm" id="exportBtn" title="Download this course as a portable bundle">Export</button>
+          <button class="btn btn-ghost btn-sm" id="importBtn" title="Install a course bundle">Import</button>
+          <button class="btn btn-ghost btn-sm" id="deleteBtn" title="Remove this course">Remove</button>
+        </div>
+      </div>
+    </nav>
+
+    <main class="main" id="main">
+      <div class="wrap" id="stage"></div>
+    </main>
+  </div>
+</div>
+
+<input type="file" id="importFile" accept="application/json,.json" hidden>
+
+<!-- new course -->
+<div class="scrim" id="newSheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="newSheetTitle">
+    <div class="sheet-head">
+      <div style="flex:1 1 auto">
+        <h2 id="newSheetTitle">Turn a syllabus into a course</h2>
+        <p>Paste the syllabus, outline, or reading list. The server reads it and builds modules, lessons, checks, and practice — then writes each lesson when you open it.</p>
+      </div>
+      <button class="icon-btn" id="newSheetClose" aria-label="Close">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="sheet-body">
+      <div class="field">
+        <label for="sylName">Course name <span style="text-transform:none;letter-spacing:0;font-weight:500">— optional, it will be named otherwise</span></label>
+        <input type="text" id="sylName" placeholder="e.g. Applied Machine Learning">
+      </div>
+      <div class="field">
+        <label for="sylText">Syllabus text</label>
+        <textarea id="sylText" placeholder="Paste the course description, learning outcomes, weekly schedule, readings, assessment breakdown — whatever you have."></textarea>
+      </div>
+      <div class="field">
+        <label>Pitch the lessons at</label>
+        <div class="seg" id="depthSeg">
+          <button type="button" data-depth="new" aria-pressed="false">Start from scratch<span>Assume no background</span></button>
+          <button type="button" data-depth="standard" aria-pressed="true">Standard<span>Some background assumed</span></button>
+          <button type="button" data-depth="deep" aria-pressed="false">Go deep<span>Rigorous, technical</span></button>
+        </div>
+      </div>
+      <div id="newSheetMsg"></div>
+    </div>
+    <div class="sheet-foot">
+      <button class="btn btn-ghost btn-sm" id="loadSampleBtn">Load a sample syllabus</button>
+      <div style="flex:1 1 auto"></div>
+      <button class="btn" id="newSheetCancel">Cancel</button>
+      <button class="btn btn-primary" id="buildBtn">Build the course</button>
+    </div>
+  </div>
+</div>
+
+<!-- catalog -->
+<div class="scrim" id="catalogSheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="catalogTitle">
+    <div class="sheet-head">
+      <div style="flex:1 1 auto">
+        <h2 id="catalogTitle">Community courses</h2>
+        <p>Course bundles anyone can publish and install. Point <code>SS_CATALOG_URL</code> at your own index to share a set with a class or a team.</p>
+      </div>
+      <button class="icon-btn" id="catalogClose" aria-label="Close">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="sheet-body"><div class="catalog-list" id="catalogList"></div></div>
+  </div>
+</div>
+
+<!-- flashcards -->
+<div class="scrim" id="fcSheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="fcTitle" style="width:min(520px,100%)">
+    <div class="sheet-head">
+      <div style="flex:1 1 auto">
+        <h2 id="fcTitle">Flashcards</h2>
+        <p id="fcSub">Tap the card to flip.</p>
+      </div>
+      <button class="icon-btn" id="fcClose" aria-label="Close">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="sheet-body">
+      <div class="deck">
+        <button class="fc" id="fcCard">
+          <span class="eyebrow" id="fcSide">Term</span>
+          <span id="fcText" class="fc-face"></span>
+        </button>
+        <div class="deck-nav">
+          <button class="btn btn-sm" id="fcPrev">← Back</button>
+          <span class="deck-count" id="fcCount">1 / 1</span>
+          <button class="btn btn-sm" id="fcNext">Next →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script type="module" src="/static/js/main.js"></script>
+</body>
+</html>

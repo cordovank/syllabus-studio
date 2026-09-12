@@ -1,0 +1,113 @@
+"""FastAPI application factory.
+
+Layering, so the frontend stays replaceable:
+
+    web/  ->  /api/v1  ->  core/  ->  llm/ + storage/
+
+``web/`` is mounted as plain static files and talks to the app only through the
+JSON API.  Swapping it for a React or HTMX build means changing this one mount
+and nothing else.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+from syllabus_studio import __version__
+from syllabus_studio.api import errors
+from syllabus_studio.api.routes import api_router
+from syllabus_studio.config import Settings, get_settings
+from syllabus_studio.core.models import LessonProgress
+from syllabus_studio.llm import get_provider
+from syllabus_studio.storage import CourseBundle, CourseStore, get_store
+
+log = logging.getLogger("syllabus_studio")
+
+WEB_DIR = Path(__file__).parent / "web"
+DEMO_BUNDLE = Path(__file__).parent / "data" / "demo_course.json"
+
+
+async def seed_demo_course(store: CourseStore) -> None:
+    """Install the bundled sample course the first time the app runs.
+
+    It is a normal course, not a special case — it arrives through the same
+    bundle import path as anything from the community catalog.
+    """
+    if not DEMO_BUNDLE.exists():
+        return
+    if await store.list_courses():
+        return
+
+    bundle = CourseBundle.parse(json.loads(DEMO_BUNDLE.read_text(encoding="utf-8")))
+    course = bundle.materialise(origin="bundled", keep_id=True)
+    course.demo = True
+    await store.save_course(course)
+
+    for lesson_id, content in bundle.lessons.items():
+        if course.find(lesson_id) is None:
+            continue
+        await store.save_lesson(course.id, lesson_id, content)
+        course.progress.setdefault(lesson_id, LessonProgress()).built = True
+
+    await store.save_course(course)
+    log.info("Seeded the bundled sample course (%s).", course.id)
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    settings = settings or get_settings()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        store = get_store(settings)
+        await store.startup()
+        app.state.settings = settings
+        app.state.store = store
+        app.state.provider = get_provider(settings)
+        if settings.seed_demo_course:
+            try:
+                await seed_demo_course(store)
+            except Exception:  # noqa: BLE001  (a bad seed must never block boot)
+                log.exception("Could not seed the sample course.")
+        try:
+            yield
+        finally:
+            await store.shutdown()
+
+    app = FastAPI(
+        title="Syllabus Studio",
+        version=__version__,
+        summary="Turn a syllabus into an interactive, self-paced course.",
+        lifespan=lifespan,
+    )
+
+    if settings.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+    errors.install(app)
+    app.include_router(api_router)
+
+    if WEB_DIR.exists():
+        app.mount(
+            "/static", StaticFiles(directory=WEB_DIR / "static"), name="static"
+        )
+
+        @app.get("/", include_in_schema=False)
+        async def index() -> FileResponse:
+            return FileResponse(WEB_DIR / "index.html")
+
+    return app

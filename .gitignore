@@ -1,0 +1,70 @@
+# Bytecode / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+*.py,cover
+
+# Python version / shell history
+.python-version
+.python_history
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+virtualenv/
+.virtualenv/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+.pybuilder/
+pytestdebug.log
+
+# Packaging / build
+build/
+dist/
+site/
+wheels/
+share/python-wheels/
+downloads/
+develop-eggs/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+pip-wheel-metadata/
+*.egg-info/
+*.egg
+MANIFEST
+
+# Local data
+data/*.db*
+*.course.json
+!src/syllabus_studio/data/*.json
+
+# Editor / IDE / OS metadata
+.vscode/
+.vscode-test/
+.idea/
+.DS_Store
+
+# Env / secrets / credentials
+.env
+.env.*
+!.env.example
+
+# Local-only (not shared)
+.claudeignore
+CLAUDE.md

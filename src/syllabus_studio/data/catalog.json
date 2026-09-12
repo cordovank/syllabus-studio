@@ -1,0 +1,14 @@
+{
+  "name": "Community courses",
+  "entries": [
+    {
+      "id": "applied-ml",
+      "title": "Applied Machine Learning",
+      "description": "Framing, auditing, splitting, evaluation and production realities for supervised learning.",
+      "author": "Syllabus Studio",
+      "license": "CC BY 4.0",
+      "tags": ["machine-learning", "data-science"],
+      "url": "demo_course.json"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+APPLIED MACHINE LEARNING — ML 5300 (3 credits)
+Term: Fall  ·  Format: asynchronous, 12 weeks  ·  Prerequisites: Python fluency, linear algebra, intro statistics
+
+COURSE DESCRIPTION
+A hands-on course in building machine learning systems that survive contact with real data. Students move from
+framing a problem and auditing a dataset through to model selection, honest evaluation, and deployment concerns.
+Emphasis throughout is on judgement: knowing which model to reach for, how to tell whether a result is real, and
+what breaks once a model leaves the notebook.
+
+LEARNING OUTCOMES
+On completion, students will be able to:
+  1. Translate a vague business or research question into a well-posed supervised learning problem.
+  2. Profile a dataset and identify leakage, imbalance, and distribution shift before modelling.
+  3. Build correct train/validation/test splits, including for grouped and time-ordered data.
+  4. Select and tune models appropriate to the data regime, and justify the choice.
+  5. Choose evaluation metrics that match the decision the model supports, and quantify uncertainty.
+  6. Diagnose underfitting, overfitting, and silent failure in a trained model.
+  7. Describe what changes when a model is deployed: latency, monitoring, retraining, and drift.
+
+WEEKLY SCHEDULE
+  Wk 1  Problem framing. Prediction vs. inference. Defining the unit of analysis and the label.
+  Wk 2  Data auditing. Missingness mechanisms, target leakage, duplicate and near-duplicate records.
+  Wk 3  Splitting strategy. Random, grouped, stratified, and time-based splits. Cross-validation done right.
+  Wk 4  Baselines. Majority class, simple heuristics, linear and logistic regression as honest floors.
+  Wk 5  Feature engineering. Encoding, scaling, interactions, and the pipeline discipline that prevents leakage.
+  Wk 6  Tree ensembles. Random forests and gradient boosting; when they beat everything else, and when they don't.
+  Wk 7  Regularisation and the bias-variance trade-off. Learning curves as a diagnostic instrument.
+  Wk 8  Evaluation I. Accuracy's failure modes. Precision, recall, F-beta, ROC-AUC vs. PR-AUC.
+  Wk 9  Evaluation II. Calibration, threshold selection, cost-sensitive decisions, confidence intervals.
+  Wk 10 Imbalanced and small-data regimes. Resampling, class weights, and why accuracy lies here.
+  Wk 11 Interpretation. Permutation importance, partial dependence, SHAP — and their limits.
+  Wk 12 Production realities. Serving, monitoring, drift detection, retraining cadence, and model rollback.
+
+ASSESSMENT
+  Weekly labs (best 10 of 12) ......... 40%
+  Midterm data audit report ........... 20%
+  Final modelling project ............. 30%
+  Peer review participation ........... 10%
+
+POLICIES
+Labs are due Sunday 23:59 local. Two late passes of 72 hours each are granted automatically. Collaboration on
+labs is encouraged; submitted code must be your own. Office hours Tuesdays 18:00-19:30.
