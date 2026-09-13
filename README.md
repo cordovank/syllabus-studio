@@ -125,8 +125,11 @@ So the author model can write both ahead of time. They are stored with the
 lesson and travel in the bundle, and readers with a weak model, or none, still
 get them.
 
+In the Studio, **Publish…**; or:
+
 ```bash
-syllabus-studio publish applied-ml-62f7f9 -o applied-ml.course.json [--reviewed-by NAME]
+syllabus-studio publish applied-ml-62f7f9 [--reviewed-by NAME]
+syllabus-studio unpublish applied-ml-62f7f9
 ```
 
 `publish` does four things in order:
@@ -135,7 +138,12 @@ syllabus-studio publish applied-ml-62f7f9 -o applied-ml.course.json [--reviewed-
 2. Precomputes all four lenses and a FAQ for every lesson.
 3. Stamps provenance: the author model, date, depth, what was enriched, and
    whether a person reviewed it.
-4. Exports the bundle.
+4. Writes the course into `./site` (`SS_SITE_DIR`) — its bundle, and its entry in
+   `catalog.json` — and reports what a reader would find missing.
+
+Nothing goes live: `./site` is a folder on your machine until you upload it to a
+static host. [`docs/publishing.md`](docs/publishing.md) walks through the whole
+flow, from preview to hosting.
 
 To precompute without exporting, run `syllabus-studio enrich <id>`.
 
@@ -215,15 +223,17 @@ syllabus-studio list
 syllabus-studio export applied-ml-62f7f9 -o applied-ml.course.json
 syllabus-studio import applied-ml.course.json
 syllabus-studio enrich applied-ml-62f7f9 [--lenses] [--faq] [--force]
-syllabus-studio publish applied-ml-62f7f9 -o applied-ml.course.json [--reviewed-by NAME]
+syllabus-studio publish applied-ml-62f7f9 [--reviewed-by NAME] [-o copy.course.json]
+syllabus-studio unpublish applied-ml-62f7f9
 syllabus-studio site build [-o site/]
 ```
 
 `build`, `enrich` and `publish` run on the author model.
 
-`site build` writes the reader as static files — the reader pages, `catalog.json`
-and one bundle per course — into `./site`. It needs no model and no server; open
-it with `python -m http.server -d site`, or host the folder anywhere.
+`./site` is the reader as static files — the reader pages, `catalog.json` and one
+bundle per published course. Courses get there by `publish`; `site build` only
+refreshes the reader's own files and never publishes anything. It needs no model
+and no server: open it with `python -m http.server -d site`, or host it anywhere.
 
 The dev server shows the same reader: `/reader/` reads `./site` as it is, and
 the Studio's **Preview as reader** opens `/reader/preview/<course-id>/` — the site
