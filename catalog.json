@@ -1,0 +1,22 @@
+{
+  "name": "Courses",
+  "lenses": [
+    {
+      "id": "eli5",
+      "label": "Plain words"
+    },
+    {
+      "id": "analogy",
+      "label": "By analogy"
+    },
+    {
+      "id": "picture",
+      "label": "Draw it"
+    },
+    {
+      "id": "rigor",
+      "label": "Go deeper"
+    }
+  ],
+  "entries": []
+}

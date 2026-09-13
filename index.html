@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  Published reader (spec 003). Every path below is relative and routes are hashes,
+  so the site works from any host and any sub-path (e.g. GitHub Pages /<repo>/).
+  Course text is model output from bundles anyone could publish: the CSP forbids
+  inline script, and markup.js escapes before rendering.
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'none'">
+<title>Courses</title>
+<meta name="description" content="Self-paced courses: lessons, checks, flashcards and practice.">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#171A2B">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="static/css/app.css">
+</head>
+<body>
+
+<div class="app" id="app" data-drawer="closed" data-view="home">
+  <header class="topbar">
+    <button class="icon-btn drawer-btn" id="drawerBtn" aria-label="Show course contents" aria-expanded="false">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <a class="mark" href="#/">
+      <div class="mark-glyph" aria-hidden="true">S</div>
+      <div class="mark-name">Syllabus&nbsp;Studio</div>
+    </a>
+    <div class="topbar-spacer"></div>
+    <a class="btn btn-sm" href="#/">All courses</a>
+  </header>
+
+  <!-- Shown only when the catalog marks a course as a preview; a built site never does. -->
+  <div class="preview-strip" id="previewStrip" role="status" hidden>
+    <span class="chip">Preview</span>
+    <span class="preview-text" id="previewText"></span>
+    <button class="btn btn-sm" id="previewReset">Reset preview progress</button>
+  </div>
+
+  <!-- Shown when the service worker served a cached course and then found a newer one. -->
+  <div class="preview-strip" id="updateStrip" role="status" hidden>
+    <span class="preview-text">This course was updated. Your progress carries over.</span>
+    <button class="btn btn-sm btn-primary" id="updateReload">Reload</button>
+  </div>
+
+  <div class="body-row">
+    <div class="rail-backdrop" id="railBackdrop"></div>
+    <nav class="rail" id="rail" aria-label="Course contents">
+      <div class="rail-head">
+        <div class="ring" id="ring"></div>
+        <div class="rail-head-meta">
+          <h2 id="railTitle">—</h2>
+          <p id="railSub">—</p>
+        </div>
+      </div>
+      <div class="rail-scroll" id="outline"></div>
+    </nav>
+
+    <main class="main" id="main">
+      <div class="wrap" id="stage"></div>
+    </main>
+  </div>
+</div>
+
+<!-- flashcards -->
+<div class="scrim" id="fcSheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="fcTitle" style="width:min(520px,100%)">
+    <div class="sheet-head">
+      <div style="flex:1 1 auto">
+        <h2 id="fcTitle">Flashcards</h2>
+        <p id="fcSub">Tap the card to flip.</p>
+      </div>
+      <button class="icon-btn" id="fcClose" aria-label="Close">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="sheet-body">
+      <div class="deck">
+        <button class="fc" id="fcCard">
+          <span class="eyebrow" id="fcSide">Term</span>
+          <span id="fcText" class="fc-face"></span>
+        </button>
+        <div class="deck-nav">
+          <button class="btn btn-sm" id="fcPrev">← Back</button>
+          <span class="deck-count" id="fcCount">1 / 1</span>
+          <button class="btn btn-sm" id="fcNext">Next →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script type="module" src="static/js/reader.js"></script>
+</body>
+</html>
