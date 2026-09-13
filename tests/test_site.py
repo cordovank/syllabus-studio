@@ -400,3 +400,9 @@ def test_provenance_names_the_model_that_actually_wrote_the_course(tmp_path: Pat
     assert author_model_name(get_provider(ollama)) == ollama.model_for_tier("default", "ollama")
     none = get_provider(Settings(_env_file=None, llm_provider="none", **base))
     assert author_model_name(none) == ""
+
+
+def test_the_site_status_says_whether_it_can_be_deployed(client) -> None:
+    # A fresh site folder isn't a git worktree: nothing pending, and it says so.
+    status = client.get("/api/v1/site").json()
+    assert status["deploy"] == {"initialised": False, "pending": 0, "ahead": 0}

@@ -104,6 +104,12 @@ class Settings(BaseSettings):
     site_dir: Path = REPO_ROOT / "site"
     """Where ``syllabus-studio site build`` writes the published reader (spec 003)."""
 
+    site_branch: str = "gh-pages"
+    """The branch ``site init`` checks out at ``site_dir`` and ``deploy`` pushes."""
+
+    site_remote: str = "origin"
+    """Where ``deploy`` pushes. Point it at another repository to move the site there."""
+
     # --- catalog -----------------------------------------------------------
     catalog_url: str = ""
     """URL of a JSON index of shareable course bundles. Empty = local only."""

@@ -188,5 +188,5 @@ Rules:
 - Each answer is under 120 words, direct, and grounded in this lesson's subject. No preamble.
 - You may use **bold**, `code` and - bullets inside answers.
 
-Reply with ONLY this JSON array and nothing else:
-[{{"q":"string","a":"string"}}]"""
+Reply with ONLY this JSON object and nothing else:
+{{"faq":[{{"q":"string","a":"string"}}]}}"""

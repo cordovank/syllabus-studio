@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from syllabus_studio.core.authoring import enrich_course
 from syllabus_studio.core.builder import build_course
 from syllabus_studio.core.models import Course, CourseSummary, LessonProgress
+from syllabus_studio.deploy import site_deploy_status
 from syllabus_studio.llm import LLMError
 from syllabus_studio.publishing import author_model_name, publish_course
 from syllabus_studio.storage import CourseBundle, StorageError, suggested_filename
@@ -118,8 +120,18 @@ async def unpublish_course(course_id: str, settings: SettingsDep) -> Response:
 @router.get("/site")
 async def site(settings: SettingsDep) -> dict[str, Any]:
     """What the site holds right now: ``{dir, exists, courses: [{id, title, publishedAt,
-    humanReviewed}]}``."""
-    return site_status(settings.site_dir)
+    humanReviewed}], deploy: {initialised, pending, ahead}}``.
+
+    ``deploy`` is read from the site's git worktree, offline — never a fetch — so it
+    says what this machine hasn't pushed, not what the live site shows."""
+    status = site_status(settings.site_dir)
+    status["deploy"] = await asyncio.to_thread(
+        site_deploy_status,
+        settings.site_dir,
+        branch=settings.site_branch,
+        remote=settings.site_remote,
+    )
+    return status
 
 
 @router.get("/courses/{course_id}", response_model=Course)

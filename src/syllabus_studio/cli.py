@@ -9,6 +9,8 @@
     syllabus-studio unpublish <course-id>
     syllabus-studio list
     syllabus-studio site build [-o site/]
+    syllabus-studio site init
+    syllabus-studio deploy [--dry-run] [--yes] [-m MESSAGE]
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from syllabus_studio.config import get_settings
 from syllabus_studio.core.authoring import enrich_course
 from syllabus_studio.core.builder import build_course
 from syllabus_studio.core.models import LessonProgress
+from syllabus_studio.deploy import DeployError, deploy, plan_deploy, site_init
 from syllabus_studio.llm import get_provider
 from syllabus_studio.publishing import PublishError, author_model_name, publish_course
 from syllabus_studio.storage import CourseBundle, get_store, suggested_filename
@@ -206,6 +209,74 @@ def _cmd_unpublish(settings, *, course_id: str) -> int:  # noqa: ANN001
     return 0
 
 
+def _cmd_site_init(settings) -> int:  # noqa: ANN001
+    try:
+        result = site_init(
+            settings.site_dir, branch=settings.site_branch, remote=settings.site_remote
+        )
+    except DeployError as exc:
+        print(f"{exc.code}: {exc.message}", file=sys.stderr)
+        return 1
+    for line in result.done:
+        print(f"  {line}")
+    print("Nothing was pushed.")
+    print(result.pages_hint)
+    return 0
+
+
+def _describe_card(card: dict) -> str:
+    lessons = f"{card['lessonCount']} lessons" if card.get("lessonCount") else "?"
+    review = {True: "reviewed", False: "NOT human-reviewed"}.get(card.get("humanReviewed"), "")
+    return " · ".join(x for x in (lessons, review) if x)
+
+
+def _cmd_deploy(settings, *, dry_run: bool, yes: bool, message: str) -> int:  # noqa: ANN001
+    where = {"branch": settings.site_branch, "remote": settings.site_remote}
+    try:
+        plan = plan_deploy(settings.site_dir, **where)
+    except DeployError as exc:
+        print(f"{exc.code}: {exc.message}", file=sys.stderr)
+        return 1
+
+    print(f"Site: {plan['siteDir']}  →  {plan['remote']}/{plan['branch']}")
+    width = max(
+        (len(c["title"]) for k in ("added", "updated", "removed") for c in plan[k]), default=0
+    )
+    for kind in ("added", "updated", "removed"):
+        for card in plan[kind]:
+            detail = "" if kind == "removed" else _describe_card(card)
+            print(f"  {kind:<8} {card['title']:<{width}}   {detail}")
+    if plan["assets"]:
+        print(f"  assets   {plan['assets']} file(s) changed")
+    if plan["unpushedCommits"] and not plan["pendingFiles"]:
+        print(f"  {plan['unpushedCommits']} commit(s) waiting to be pushed")
+    for title in plan["unreviewed"]:
+        print(f"  warning: {title} is not human-reviewed; readers will see that")
+    print(
+        f"Will go live at {plan['url']}" if plan["url"] else "No GitHub Pages URL for this remote."
+    )
+
+    if dry_run:
+        print("Dry run: nothing committed or pushed.")
+        return 0
+    if not yes:
+        try:
+            answer = input("Deploy? [y/N] ")
+        except EOFError:
+            answer = ""
+        if answer.strip().lower() not in ("y", "yes"):
+            print("Not deployed.")
+            return 1
+
+    try:
+        done = deploy(settings.site_dir, message=message, **where)
+    except DeployError as exc:
+        print(f"{exc.code}: {exc.message}", file=sys.stderr)
+        return 1
+    print(f"Pushed {done['commit'][:7]}. Pages usually updates within a minute.")
+    return 0
+
+
 def _cmd_site_build(settings, *, out: Path | None) -> int:  # noqa: ANN001
     site_dir = out or settings.site_dir
     written = write_reader_files(site_dir)
@@ -257,6 +328,14 @@ def main(argv: list[str] | None = None) -> int:
     site_sub = p_site.add_subparsers(dest="site_command", required=True)
     p_site_build = site_sub.add_parser("build", help="refresh the reader; publishes nothing")
     p_site_build.add_argument("-o", "--out", type=Path, help="default: SS_SITE_DIR (./site)")
+    site_sub.add_parser(
+        "init", help="make SS_SITE_DIR a worktree of the gh-pages branch; never pushes"
+    )
+
+    p_deploy = sub.add_parser("deploy", help="commit the site and push it to GitHub Pages")
+    p_deploy.add_argument("--dry-run", action="store_true", help="show what would go live")
+    p_deploy.add_argument("--yes", action="store_true", help="don't ask before pushing")
+    p_deploy.add_argument("-m", "--message", default="", help="commit message")
 
     args = parser.parse_args(argv)
 
@@ -300,6 +379,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_unpublish(get_settings(), course_id=args.course_id)
     if args.command == "site" and args.site_command == "build":
         return _cmd_site_build(get_settings(), out=args.out)
+    if args.command == "site" and args.site_command == "init":
+        return _cmd_site_init(get_settings())
+    if args.command == "deploy":
+        return _cmd_deploy(get_settings(), dry_run=args.dry_run, yes=args.yes, message=args.message)
     if args.command == "import":
         return asyncio.run(_with_store(lambda s, st: _cmd_import(s, st, path=args.path)))
     return 1

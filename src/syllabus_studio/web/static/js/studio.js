@@ -75,6 +75,7 @@ function render() {
       : '<span class="pub-status">Not published</span>';
   const noModel = can("authorCourses") ? "" : ' title="Publishing needs an authoring model"';
 
+  h += deployNotice();
   h +=
     '<div class="studio-head"><div>' +
     `<h1>${esc(c.title)}</h1>` +
@@ -106,6 +107,30 @@ function render() {
   h += "</div>";
 
   $("stage").innerHTML = h;
+}
+
+/**
+ * Site-wide, so it sits above the course. Shows the command rather than a button:
+ * deploying makes things public, and that stays a deliberate step in a terminal.
+ */
+function deployNotice() {
+  const d = site.deploy;
+  if (!d) return "";
+  if (!d.initialised) {
+    if (!site.exists) return "";
+    return (
+      '<div class="banner deploy-note"><span><b>The site isn\'t set up to deploy yet.</b> ' +
+      "Run <code>syllabus-studio site init</code> once — see <code>docs/publishing.md</code>.</span></div>"
+    );
+  }
+  if (!d.pending && !d.ahead) return "";
+  const what = d.pending
+    ? `${d.pending} ${d.pending === 1 ? "change" : "changes"} in the site`
+    : `${d.ahead} ${d.ahead === 1 ? "commit" : "commits"}`;
+  return (
+    `<div class="banner deploy-note"><span><b>${esc(what)} not deployed.</b> ` +
+    "Readers see them once you run <code>syllabus-studio deploy</code>.</span></div>"
+  );
 }
 
 function renderPicker() {
@@ -193,7 +218,7 @@ function reportMarkup(r) {
   return (
     '<div class="pub-done">' +
     `<p><b>Published into <code>${esc(r.siteDir)}/${esc(r.bundle)}</code>.</b> ` +
-    "Nothing is live yet: deploy the site to put it in front of readers.</p>" +
+    "Nothing is live yet: run <code>syllabus-studio deploy</code> to put it in front of readers.</p>" +
     (warn.length
       ? `<ul class="pub-warn">${warn.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>`
       : "<p>Every lesson is written, with all lenses and a FAQ.</p>") +

@@ -77,9 +77,7 @@ async def written(provider, syllabus: str) -> tuple[Course, str, LessonContent]:
 # --- lenses ---------------------------------------------------------------
 
 
-async def test_every_lens_is_precomputed_and_ids_match_the_prompt_table(
-    provider, written
-) -> None:
+async def test_every_lens_is_precomputed_and_ids_match_the_prompt_table(provider, written) -> None:
     course, lid, content = written
     lenses = await precompute_lenses(provider, course=course, lesson_id=lid, content=content)
 
@@ -126,15 +124,35 @@ async def test_faq_parses_to_items_with_a_question_and_an_answer(provider, writt
     assert all(item.q.strip() and item.a.strip() for item in faq)
 
 
-async def test_faq_accepts_an_object_wrapping_the_array(settings, written) -> None:
-    # Ollama's JSON mode nudges small models into a top-level object.
-    class Wrapping(EchoProvider):
-        def _reply(self, messages: Sequence[Message]) -> str:
-            return json.dumps({"faq": json.loads(super()._reply(messages))})
+def test_faq_prompt_asks_for_an_object_because_json_mode_cannot_emit_an_array(written) -> None:
+    # Ollama's format:"json" forces a top-level object; asked for an array, gpt-oss
+    # returned only the first item and every FAQ in a publish failed.
+    from syllabus_studio.core.prompts import faq_prompt
 
     course, lid, content = written
-    faq = await generate_faq(Wrapping(settings), course=course, lesson_id=lid, content=content)
-    assert faq
+    lesson = course.find(lid)[2]
+    reply_shape = faq_prompt(course=course, lesson=lesson, content=content).rsplit("\n", 1)[-1]
+    assert reply_shape.startswith("{")
+
+
+async def test_faq_still_accepts_a_bare_array(settings, written) -> None:
+    class Bare(EchoProvider):
+        def _reply(self, messages: Sequence[Message]) -> str:
+            return json.dumps(json.loads(super()._reply(messages))["faq"])
+
+    course, lid, content = written
+    faq = await generate_faq(Bare(settings), course=course, lesson_id=lid, content=content)
+    assert len(faq) == 3
+
+
+async def test_faq_salvages_a_single_bare_row_rather_than_failing(settings, written) -> None:
+    class OneRow(EchoProvider):
+        def _reply(self, messages: Sequence[Message]) -> str:
+            return json.dumps({"q": "Why split by customer?", "a": "Rows share a customer."})
+
+    course, lid, content = written
+    faq = await generate_faq(OneRow(settings), course=course, lesson_id=lid, content=content)
+    assert faq == [FaqItem(q="Why split by customer?", a="Rows share a customer.")]
 
 
 # --- enrich_lesson --------------------------------------------------------
@@ -274,8 +292,9 @@ def test_bulk_enrich_streams_progress_then_done(client, syllabus: str) -> None:
 
     names = [name for name, _ in events]
     assert names[-1] == "done" and set(names[:-1]) == {"progress"}
-    outcomes = {p["lessonId"]: p["stage"] for n, p in events if n == "progress" and
-                p["stage"] != "started"}
+    outcomes = {
+        p["lessonId"]: p["stage"] for n, p in events if n == "progress" and p["stage"] != "started"
+    }
     assert outcomes[lid] == "enriched"
     assert list(outcomes.values()).count("unwritten") == total - 1
     progress = [p for n, p in events if n == "progress"]
@@ -294,8 +313,12 @@ def test_bulk_enrich_with_no_author_model_is_503_before_streaming(
     from syllabus_studio.app import create_app
 
     s = Settings(
-        _env_file=None, llm_provider="echo", author_provider="none", reader_provider="",
-        db_path=tmp_path / "t.db", seed_demo_course=True,
+        _env_file=None,
+        llm_provider="echo",
+        author_provider="none",
+        reader_provider="",
+        db_path=tmp_path / "t.db",
+        seed_demo_course=True,
     )
     with TestClient(create_app(s)) as client:
         cid = client.get("/api/v1/courses").json()[0]["id"]

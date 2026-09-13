@@ -141,9 +141,10 @@ syllabus-studio unpublish applied-ml-62f7f9
 4. Writes the course into `./site` (`SS_SITE_DIR`) — its bundle, and its entry in
    `catalog.json` — and reports what a reader would find missing.
 
-Nothing goes live: `./site` is a folder on your machine until you upload it to a
-static host. [`docs/publishing.md`](docs/publishing.md) walks through the whole
-flow, from preview to hosting.
+Nothing goes live: `./site` is a folder on your machine until you deploy it —
+`syllabus-studio site init` once, then `syllabus-studio deploy` to push it to
+GitHub Pages. [`docs/publishing.md`](docs/publishing.md) walks through the whole
+flow, from preview to deploy.
 
 To precompute without exporting, run `syllabus-studio enrich <id>`.
 
@@ -226,6 +227,8 @@ syllabus-studio enrich applied-ml-62f7f9 [--lenses] [--faq] [--force]
 syllabus-studio publish applied-ml-62f7f9 [--reviewed-by NAME] [-o copy.course.json]
 syllabus-studio unpublish applied-ml-62f7f9
 syllabus-studio site build [-o site/]
+syllabus-studio site init                     # once: ./site becomes a worktree of gh-pages
+syllabus-studio deploy [--dry-run] [--yes]    # commit ./site and push it to GitHub Pages
 ```
 
 `build`, `enrich` and `publish` run on the author model.

@@ -105,9 +105,18 @@ def _lesson(prompt: str) -> dict[str, Any]:
         ],
         "keyTerms": [
             {"term": "Provider", "definition": "The pluggable adapter that talks to a model."},
-            {"term": "Tier", "definition": "quick / default / complex — mapped to a model per provider."},
-            {"term": "Bundle", "definition": "A portable JSON file holding a course and its lessons."},
-            {"term": "Store", "definition": "Where courses live: sqlite locally, or a remote instance."},
+            {
+                "term": "Tier",
+                "definition": "quick / default / complex — mapped to a model per provider.",
+            },
+            {
+                "term": "Bundle",
+                "definition": "A portable JSON file holding a course and its lessons.",
+            },
+            {
+                "term": "Store",
+                "definition": "Where courses live: sqlite locally, or a remote instance.",
+            },
         ],
         "worked": {
             "title": "Switching to a real provider",
@@ -144,26 +153,28 @@ def _lesson(prompt: str) -> dict[str, Any]:
     }
 
 
-def _faq(prompt: str) -> list[dict[str, str]]:
+def _faq(prompt: str) -> dict[str, list[dict[str, str]]]:
     m = re.search(r"LESSON: (.+)", prompt)
     title = m.group(1).strip() if m else "this lesson"
-    return [
-        {
-            "q": f"Is anything in “{title}” real, or is it all placeholder?",
-            "a": "All placeholder. The **echo** provider writes fixed text so the app runs "
-            "offline.",
-        },
-        {
-            "q": "Why would a precomputed answer ever beat asking a live model?",
-            "a": "A strong model wrote it at authoring time with the whole lesson in front of it, "
-            "which a small local model at read time often cannot match.",
-        },
-        {
-            "q": "What do I change to get real questions here?",
-            "a": "Set `SS_AUTHOR_PROVIDER` (or `SS_LLM_PROVIDER`) to a real provider and re-run "
-            "enrichment with force.",
-        },
-    ]
+    return {
+        "faq": [
+            {
+                "q": f"Is anything in “{title}” real, or is it all placeholder?",
+                "a": "All placeholder. The **echo** provider writes fixed text so the app runs "
+                "offline.",
+            },
+            {
+                "q": "Why would a precomputed answer ever beat asking a live model?",
+                "a": "A strong model wrote it at authoring time with the whole lesson in front of it, "
+                "which a small local model at read time often cannot match.",
+            },
+            {
+                "q": "What do I change to get real questions here?",
+                "a": "Set `SS_AUTHOR_PROVIDER` (or `SS_LLM_PROVIDER`) to a real provider and re-run "
+                "enrichment with force.",
+            },
+        ]
+    }
 
 
 @register("echo")

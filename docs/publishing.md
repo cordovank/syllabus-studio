@@ -3,11 +3,11 @@
 Getting from a syllabus to a course readers can open with a link.
 
 > **Nothing here goes live on its own.** Publishing writes files into `./site` on
-> your machine. They're public only once you upload that folder somewhere.
+> your machine. They're public only once you run `syllabus-studio deploy`.
 
 ```
-build ──▶ write ──▶ enrich ──▶ preview ──▶ publish ──▶ host site/
- Studio    Studio    publish     Studio      Studio      you
+build ──▶ write ──▶ enrich ──▶ preview ──▶ publish ──▶ deploy site/
+ Studio    Studio    publish     Studio      Studio      CLI
 ```
 
 ## The steps
@@ -19,7 +19,7 @@ build ──▶ write ──▶ enrich ──▶ preview ──▶ publish ─�
 | 3. Enrich (lenses + FAQ) | done by **Publish…** | `syllabus-studio enrich <id>` | author |
 | 4. Preview | **Preview as reader** | — | no |
 | 5. Publish into `site/` | **Publish…** | `syllabus-studio publish <id>` | author |
-| 6. Host | — | upload `site/` | no |
+| 6. Deploy | shows *N changes not deployed* | `syllabus-studio deploy` | no |
 
 Configure the author model in `.env` first (see the README). With no author
 model, the Studio still opens and previews, but it can't build, write or
@@ -67,7 +67,7 @@ costs cents.
 
 **Unpublish** in the Studio, or `syllabus-studio unpublish <course-id>`. It
 removes the catalog entry and the bundle file, and nothing else. The course
-stays in your Studio. Readers stop seeing it once you upload the updated site.
+stays in your Studio. Readers stop seeing it once you deploy.
 
 ## The site folder
 
@@ -95,19 +95,79 @@ python -m http.server -d site     # http://localhost:8000/
 
 `/reader/` in the Studio server shows the same thing.
 
-## Hosting
+## Deploying to GitHub Pages
 
-`site/` is plain static files. Upload the folder's contents to any static host:
-GitHub Pages, Netlify, Cloudflare Pages, S3, or your own web server. There's
-nothing to configure beyond serving the files.
+The site lives on an orphan `gh-pages` branch of this repository, checked out as
+a git worktree at `./site`. Orphan means it shares no history with the code:
+course content never enters `main`, and `main`'s `.gitignore` already hides
+`site/`.
 
-Keep in mind:
+### Once: `syllabus-studio site init`
 
-- **Uploading makes it public.** A GitHub Pages site is public even when its
-  repository is private, and Pages on a private repository needs a paid plan.
+```bash
+syllabus-studio site init
+```
+
+It makes `./site` a worktree of `gh-pages`: the existing branch if there is one
+locally or on `origin`, otherwise a new orphan branch (needs git 2.42 or newer).
+Then it refreshes the reader's files. Running it again changes nothing.
+
+It never pushes and never turns Pages on, because that makes the site public.
+It prints the step for you to do:
+
+> Settings → Pages → Deploy from a branch → `gh-pages` / `(root)`
+
+If `./site` already exists as a plain folder, `site init` stops rather than
+move it. The folder is generated, so delete it, run `site init`, and publish
+your courses again.
+
+### Every time: `syllabus-studio deploy`
+
+```
+$ syllabus-studio deploy
+Site: ./site  →  origin/gh-pages
+  updated  Applied Machine Learning   11 lessons · reviewed
+  added    Intro to Statistics        8 lessons · NOT human-reviewed
+  assets   2 file(s) changed
+  warning: Intro to Statistics is not human-reviewed; readers will see that
+Will go live at https://cordovank.github.io/syllabus-studio/
+Deploy? [y/N]
+```
+
+It compares `catalog.json` with the last deployed commit to list what's added,
+updated and removed, asks, then commits everything in `./site` and pushes
+`gh-pages`. Pages usually updates within a minute.
+
+| Flag | Does |
+|---|---|
+| `--dry-run` | shows the list and stops; nothing committed or pushed |
+| `--yes` | skips the question |
+| `-m MESSAGE` | your commit message instead of *"Publish: Applied ML (updated), …"* |
+
+- **It never force-pushes.** If `gh-pages` changed elsewhere, the push is
+  rejected and your commit stays in `./site`. Pull with
+  `git -C site pull --rebase`, then run `deploy` again. If two people published
+  at the same time, `catalog.json` can conflict; keep both entries.
+- **Nothing to deploy** is reported as such, not as an error in the site.
+- The Studio says *N changes not deployed* whenever `./site` has work this
+  machine hasn't pushed. It shows the command; it doesn't run it.
+
+### Moving the site to its own repository
+
+Push `gh-pages` to the new repository, set `SS_SITE_REMOTE` (and
+`SS_SITE_BRANCH` if it isn't `gh-pages`) in `.env`, and enable Pages there.
+Paths are relative, so nothing needs rebuilding for the new URL.
+
+### Other hosts
+
+`./site` is plain static files, so Netlify, Cloudflare Pages, S3 or any web
+server work too: upload the folder's contents. `deploy` is only for GitHub Pages.
+
+Keep in mind, wherever it's hosted:
+
+- **Deploying makes it public.** Anyone with the link can read the site.
 - **Readers can see everything in it**: every bundle, its provenance, and the
   catalog.
-- There's no deploy command yet, so uploading is up to you.
 
 ## What readers get
 

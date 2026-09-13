@@ -110,14 +110,19 @@ async def precompute_lenses(
 
 
 def _faq_items(payload: Any, count: int) -> list[FaqItem]:
-    """Accept a bare array, or an object wrapping one.
+    """Accept the ``{"faq": [...]}`` the prompt asks for, a bare array, or one bare row.
 
-    The wrapper case is not hypothetical: Ollama's ``format: "json"`` pushes
-    small models towards a top-level object even when asked for an array.
+    The prompt asks for an object because Ollama's ``format: "json"`` constrains
+    decoding to a top-level object: asked for an array, gpt-oss emitted only the
+    first ``{"q","a"}`` and stopped, and every FAQ failed. The bare-row case is
+    kept so a model that still does that yields one answer rather than none.
     """
     rows: Any = payload
     if isinstance(payload, dict):
-        rows = next((v for v in payload.values() if isinstance(v, list)), [])
+        if "q" in payload or "question" in payload:
+            rows = [payload]
+        else:
+            rows = next((v for v in payload.values() if isinstance(v, list)), [])
     if not isinstance(rows, list):
         return []
 
@@ -301,7 +306,5 @@ def enriched_passes(lessons: Iterable[LessonContent]) -> list[str]:
     return [
         name
         for name in PASSES
-        if all(
-            not missing_enrichment(c, lenses=name == "lenses", faq=name == "faq") for c in rows
-        )
+        if all(not missing_enrichment(c, lenses=name == "lenses", faq=name == "faq") for c in rows)
     ]
