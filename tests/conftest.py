@@ -25,6 +25,7 @@ def settings(tmp_path: Path) -> Settings:
         reader_provider="",
         storage_backend="sqlite",
         db_path=tmp_path / "test.db",
+        site_dir=tmp_path / "site",
         seed_demo_course=False,
         catalog_url="",
     )

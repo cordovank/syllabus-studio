@@ -3,9 +3,13 @@
 A site is the reader's own pages plus ``catalog.json`` plus one bundle per course.
 Readers open it from any static host; nothing in it calls ``/api/v1``.
 
-The same two generators — :func:`site_catalog` and :func:`site_bundle` — feed both
-``syllabus-studio site build`` and the server's ``/reader/`` preview, so what the
-author previews is what a build writes.
+The same generators feed ``syllabus-studio site build`` and the server's reader:
+
+- ``/reader/`` serves the site as it is on disk (:func:`read_site_catalog`).
+- ``/reader/preview/<id>/`` serves that catalog with one course upserted as it would
+  be published now (:func:`preview_catalog`). The reader fetches ``catalog.json``
+  relative to its page, so the URL alone selects the preview — no reader code
+  knows it is being previewed beyond the entry's ``preview`` flag.
 """
 
 from __future__ import annotations
@@ -19,10 +23,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from syllabus_studio.core.authoring import enriched_passes
+from syllabus_studio.core.models import now_ms
 from syllabus_studio.core.tutor import available_lenses
 
 from .base import CourseStore
-from .bundle import CourseBundle
+from .bundle import CourseBundle, Provenance
 
 WEB_DIR = Path(__file__).resolve().parents[1] / "web"
 
@@ -59,6 +65,10 @@ def course_id_from_filename(name: str) -> str | None:
     return m.group("id") if m else None
 
 
+def valid_course_id(course_id: str) -> bool:
+    return course_id_from_filename(bundle_filename(course_id)) == course_id
+
+
 async def site_bundle(store: CourseStore, course_id: str) -> CourseBundle | None:
     """What a reader downloads for one course: outline and written lessons, no progress."""
     course = await store.get_course(course_id)
@@ -72,27 +82,140 @@ async def site_bundle(store: CourseStore, course_id: str) -> CourseBundle | None
     return CourseBundle.build(course, lessons)
 
 
+def catalog_entry(bundle: CourseBundle, *, with_provenance: bool = False) -> dict[str, Any]:
+    """One catalog card. The provenance mirrors let a reader judge a course before
+    downloading it; they are only written when the bundle's provenance was stamped,
+    since an absent field means "the catalog didn't say", not "not reviewed"."""
+    course = bundle.course
+    entry: dict[str, Any] = {
+        "id": course.id,
+        "title": course.title,
+        "description": course.subtitle,
+        "url": f"{COURSES_DIR}/{bundle_filename(course.id)}",
+        "lessonCount": len(course.all_lessons()),
+        "tags": [],
+    }
+    if with_provenance:
+        p = bundle.provenance
+        entry |= {
+            "authorModel": p.author_model,
+            "humanReviewed": p.human_reviewed,
+            "enriched": list(p.enriched),
+        }
+    return entry
+
+
+def empty_catalog() -> dict[str, Any]:
+    return {"name": "Courses", "lenses": available_lenses(), "entries": []}
+
+
 async def site_catalog(store: CourseStore) -> dict[str, Any]:
     """``catalog.json`` for every stored course, bundle URLs relative to the catalog.
 
     Carries the lens labels too: the reader has no ``/lenses`` endpoint to ask.
     """
-    entries = []
+    catalog = empty_catalog()
     for summary in await store.list_courses():
-        course = await store.get_course(summary.id)
-        if course is None:
-            continue
-        entries.append(
-            {
-                "id": course.id,
-                "title": course.title,
-                "description": course.subtitle,
-                "url": f"{COURSES_DIR}/{bundle_filename(course.id)}",
-                "lessonCount": len(course.all_lessons()),
-                "tags": [],
-            }
-        )
-    return {"name": "Courses", "lenses": available_lenses(), "entries": entries}
+        bundle = await site_bundle(store, summary.id)
+        if bundle is not None:
+            catalog["entries"].append(catalog_entry(bundle))
+    return catalog
+
+
+def read_site_catalog(site_dir: Path) -> dict[str, Any]:
+    """The site's ``catalog.json`` as it is on disk, or an empty one.
+
+    Lens labels are always the current ones: the reader serving it is current code.
+    """
+    try:
+        raw = json.loads((Path(site_dir) / "catalog.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return empty_catalog()
+    if not isinstance(raw, dict) or not isinstance(raw.get("entries"), list):
+        return empty_catalog()
+    return {
+        "name": raw.get("name") or "Courses",
+        "lenses": available_lenses(),
+        "entries": [e for e in raw["entries"] if isinstance(e, dict) and e.get("id")],
+    }
+
+
+# Fields the author may have edited by hand in catalog.json; a republish keeps them.
+_AUTHOR_OWNED = ("description", "tags", "license")
+
+
+def upsert_entry(catalog: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
+    """Replace the entry with the same id, keeping author-set fields and its position,
+    or add it first so a new course is the first thing on the page. Returns a copy."""
+    entries = list(catalog["entries"])
+    for i, existing in enumerate(entries):
+        if existing.get("id") == entry["id"]:
+            kept = {k: existing[k] for k in _AUTHOR_OWNED if existing.get(k)}
+            entries[i] = {**entry, **kept}
+            break
+    else:
+        entries.insert(0, entry)
+    return {**catalog, "entries": entries}
+
+
+def site_bundle_path(site_dir: Path, name: str) -> Path | None:
+    """A bundle already in the site, by a checked file name."""
+    if course_id_from_filename(name) is None:
+        return None
+    path = Path(site_dir) / COURSES_DIR / name
+    return path if path.is_file() else None
+
+
+# --- preview ------------------------------------------------------------------
+
+
+def stamp_provenance(
+    bundle: CourseBundle, *, author_provider: str, author_model: str, reviewer: str = ""
+) -> CourseBundle:
+    """Provenance as publishing would write it now. Returns a copy."""
+    stamped = bundle.model_copy(deep=True)
+    stamped.provenance = Provenance(
+        author_provider=author_provider,
+        author_model=author_model,
+        depth=bundle.course.depth,
+        generated_at=now_ms(),
+        enriched=enriched_passes(bundle.lessons.values()),
+        human_reviewed=bool(reviewer),
+        reviewer=reviewer,
+    )
+    return stamped
+
+
+async def preview_bundle(
+    store: CourseStore, course_id: str, *, author_provider: str, author_model: str
+) -> CourseBundle | None:
+    bundle = await site_bundle(store, course_id)
+    if bundle is None:
+        return None
+    return stamp_provenance(bundle, author_provider=author_provider, author_model=author_model)
+
+
+async def preview_catalog(
+    store: CourseStore,
+    site_dir: Path,
+    course_id: str,
+    *,
+    author_provider: str,
+    author_model: str,
+) -> dict[str, Any] | None:
+    """The site's catalog as it would be if this course were published now.
+
+    Read-only: the site on disk is never written. The course's entry carries
+    ``"preview": true``, which is what makes the reader show its preview strip —
+    a built site never has one, so the reader needs no separate preview mode.
+    """
+    bundle = await preview_bundle(
+        store, course_id, author_provider=author_provider, author_model=author_model
+    )
+    if bundle is None:
+        return None
+    entry = catalog_entry(bundle, with_provenance=True) | {"preview": True}
+    return upsert_entry(read_site_catalog(site_dir), entry)
 
 
 @dataclass

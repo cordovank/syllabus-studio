@@ -34,8 +34,11 @@ from syllabus_studio.storage import CourseBundle, CourseStore, get_store
 from syllabus_studio.storage.site import (
     READER_FILES,
     course_id_from_filename,
-    site_bundle,
-    site_catalog,
+    preview_bundle,
+    preview_catalog,
+    read_site_catalog,
+    site_bundle_path,
+    valid_course_id,
 )
 
 log = logging.getLogger("syllabus_studio")
@@ -141,11 +144,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         async def studio() -> FileResponse:
             return FileResponse(WEB_DIR / "studio.html", headers=NO_CACHE)
 
-        # The published reader, served here as the author's preview. It reads the same
-        # catalog.json and bundles a site build writes, generated from the store on
-        # each request, and only the files READER_FILES lists — so a file the build
-        # would leave out is missing here too, not just on the live site.
+        # The published reader, served by the author's server (spec 003 §5):
+        #   /reader/                  the site as it is on disk in SS_SITE_DIR
+        #   /reader/preview/<id>/     that site with one course upserted as it would be
+        #                             published now — read-only, nothing is written
+        # The reader fetches catalog.json relative to its page, so the URL alone picks
+        # which catalog it reads. Only files READER_FILES lists are served, so a file a
+        # build would leave out is missing here too, not just on the live site.
         reader_files = {dest: WEB_DIR / source for source, dest in READER_FILES}
+
+        def reader_file(path: str) -> Response:
+            source = reader_files.get(path or "index.html")
+            if source is None:
+                return Response(status_code=404)
+            return FileResponse(source, headers=NO_CACHE)
+
+        def site_file(name: str) -> Response:
+            path = site_bundle_path(settings.site_dir, name)
+            if path is None:
+                return Response(status_code=404)
+            return FileResponse(path, media_type="application/json", headers=NO_CACHE)
+
+        def author_stamp(request: Request) -> dict[str, str]:
+            provider = request.app.state.providers["author"]
+            if provider.name == "none":
+                return {"author_provider": "none", "author_model": ""}
+            model = settings.model_for_tier("default", provider.name)
+            return {"author_provider": provider.name, "author_model": model}
 
         @app.get("/reader", include_in_schema=False)
         async def reader_root() -> RedirectResponse:
@@ -153,22 +178,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return RedirectResponse("/reader/")
 
         @app.get("/reader/catalog.json", include_in_schema=False)
-        async def reader_catalog(request: Request) -> JSONResponse:
-            return JSONResponse(await site_catalog(request.app.state.store), headers=NO_CACHE)
+        async def reader_catalog() -> JSONResponse:
+            return JSONResponse(read_site_catalog(settings.site_dir), headers=NO_CACHE)
 
         @app.get("/reader/courses/{name}", include_in_schema=False)
-        async def reader_bundle(name: str, request: Request) -> Response:
-            course_id = course_id_from_filename(name)
-            bundle = await site_bundle(request.app.state.store, course_id) if course_id else None
+        async def reader_bundle(name: str) -> Response:
+            return site_file(name)
+
+        @app.get("/reader/preview/{course_id}", include_in_schema=False)
+        async def preview_root(course_id: str) -> RedirectResponse:
+            return RedirectResponse(f"/reader/preview/{course_id}/#/course/{course_id}")
+
+        @app.get("/reader/preview/{course_id}/catalog.json", include_in_schema=False)
+        async def preview_catalog_json(course_id: str, request: Request) -> Response:
+            if not valid_course_id(course_id):
+                return Response(status_code=404)
+            catalog = await preview_catalog(
+                request.app.state.store,
+                settings.site_dir,
+                course_id,
+                **author_stamp(request),
+            )
+            if catalog is None:
+                return Response(status_code=404)
+            return JSONResponse(catalog, headers=NO_CACHE)
+
+        @app.get("/reader/preview/{course_id}/courses/{name}", include_in_schema=False)
+        async def preview_bundle_json(course_id: str, name: str, request: Request) -> Response:
+            # The previewed course is generated live; every other course is the site's copy.
+            if course_id_from_filename(name) != course_id:
+                return site_file(name)
+            bundle = await preview_bundle(
+                request.app.state.store, course_id, **author_stamp(request)
+            )
             if bundle is None:
                 return Response(status_code=404)
             return Response(bundle.to_json(), media_type="application/json", headers=NO_CACHE)
 
+        @app.get("/reader/preview/{course_id}/{path:path}", include_in_schema=False)
+        async def preview_file(course_id: str, path: str) -> Response:
+            return reader_file(path) if valid_course_id(course_id) else Response(status_code=404)
+
         @app.get("/reader/{path:path}", include_in_schema=False)
-        async def reader_file(path: str) -> Response:
-            source = reader_files.get(path or "index.html")
-            if source is None:
-                return Response(status_code=404)
-            return FileResponse(source, headers=NO_CACHE)
+        async def reader_asset(path: str) -> Response:
+            return reader_file(path)
 
     return app

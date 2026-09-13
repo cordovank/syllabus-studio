@@ -223,8 +223,11 @@ syllabus-studio site build [-o site/]
 
 `site build` writes the reader as static files — the reader pages, `catalog.json`
 and one bundle per course — into `./site`. It needs no model and no server; open
-it with `python -m http.server -d site`, or host the folder anywhere. The Studio's
-**Preview as reader** serves the same reader at `/reader/`.
+it with `python -m http.server -d site`, or host the folder anywhere.
+
+The dev server shows the same reader: `/reader/` reads `./site` as it is, and
+the Studio's **Preview as reader** opens `/reader/preview/<course-id>/` — the site
+with that course added as it would be published now. A preview never writes `./site`.
 
 ---
 

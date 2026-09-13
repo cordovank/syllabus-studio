@@ -165,6 +165,18 @@ export function createData({ catalogUrl, fetch = globalThis.fetch, storage = nul
     return { progress: all, saved };
   }
 
+  /** Forget a course entirely: its progress and its place in the library. */
+  function resetProgress(courseId) {
+    const key = `progress:${courseId}`;
+    memory.delete(key);
+    try {
+      if (storage) storage.removeItem(PREFIX + key);
+    } catch (e) {
+      warnOnce(e);
+    }
+    write("library", JSON.stringify(library().filter((id) => id !== courseId)));
+  }
+
   /** Courses this reader has opened, most recent first. */
   function library() {
     const ids = readJson("library", []);
@@ -177,5 +189,5 @@ export function createData({ catalogUrl, fetch = globalThis.fetch, storage = nul
     return ids;
   }
 
-  return { catalog, course, lesson, lens, progress, setProgress, library, touchLibrary };
+  return { catalog, course, lesson, lens, progress, setProgress, resetProgress, library, touchLibrary };
 }

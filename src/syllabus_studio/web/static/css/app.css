@@ -532,3 +532,13 @@ a.mark{color:inherit;text-decoration:none}
 .app[data-view="home"] .rail-backdrop,
 .app[data-view="home"] .drawer-btn{display:none}
 .home-sub{color:var(--ink-3);font-size:14px}
+/* preview: only ever shown by the author's server (spec 003 §5) */
+.preview-strip{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:0 0 auto;
+  padding:8px 16px;background:var(--accent-wash);border-bottom:1px solid var(--line);
+  font-size:13.5px;color:var(--ink-2)
+}
+.preview-strip[hidden]{display:none}
+.preview-text{flex:1 1 240px;min-width:0}
+.preview-chip{margin-bottom:6px}
+.catalog-item[data-preview="true"]{border-color:var(--accent)}

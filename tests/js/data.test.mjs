@@ -167,3 +167,20 @@ test("the library lists opened courses, most recent first, without duplicates", 
   data.touchLibrary("ml");
   assert.deepEqual(data.library(), ["ml", "stats"]);
 });
+
+test("resetting a course forgets its progress and library place, and nothing else", () => {
+  const storage = memoryStorage();
+  const data = createData({ catalogUrl: `${SITE}catalog.json`, storage });
+  data.setProgress("ml", "m1l1", { done: true });
+  data.setProgress("stats", "m1l1", { done: true });
+  data.touchLibrary("stats");
+  data.touchLibrary("ml");
+
+  data.resetProgress("ml");
+
+  assert.deepEqual(data.progress("ml"), {});
+  assert.deepEqual(data.library(), ["stats"]);
+  assert.equal(data.progress("stats").m1l1.done, true);
+  // and it stays reset on the next page load
+  assert.deepEqual(createData({ catalogUrl: `${SITE}catalog.json`, storage }).progress("ml"), {});
+});

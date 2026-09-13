@@ -33,6 +33,13 @@
     <a class="btn btn-sm" href="#/">All courses</a>
   </header>
 
+  <!-- Shown only when the catalog marks a course as a preview; a built site never does. -->
+  <div class="preview-strip" id="previewStrip" role="status" hidden>
+    <span class="chip">Preview</span>
+    <span class="preview-text" id="previewText"></span>
+    <button class="btn btn-sm" id="previewReset">Reset preview progress</button>
+  </div>
+
   <div class="body-row">
     <div class="rail-backdrop" id="railBackdrop"></div>
     <nav class="rail" id="rail" aria-label="Course contents">

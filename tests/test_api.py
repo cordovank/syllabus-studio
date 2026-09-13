@@ -242,6 +242,7 @@ def _app(tmp_path: Path, **roles: str) -> Iterator[TestClient]:
         author_provider=roles.get("author", ""),
         reader_provider=roles.get("reader", ""),
         db_path=tmp_path / "roles.db",
+        site_dir=tmp_path / "site",
         seed_demo_course=False,
     )
     with TestClient(create_app(settings)) as client:

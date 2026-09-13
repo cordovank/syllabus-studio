@@ -38,18 +38,28 @@ function loading(text) {
   $("stage").innerHTML = `<div class="state"><div class="spinner"></div><p>${esc(text)}</p></div>`;
 }
 
+/** Absent means the catalog didn't say — not the same as "not reviewed". */
+function reviewTag(entry) {
+  if (entry.humanReviewed === true) return "reviewed";
+  if (entry.humanReviewed === false) return "not reviewed";
+  return "";
+}
+
 function courseCard(entry, doneCount) {
   const started = doneCount > 0;
   const meta = [
     entry.lessonCount ? `${entry.lessonCount} lessons` : "",
     started && entry.lessonCount ? `${doneCount} done` : "",
-    entry.humanReviewed ? "reviewed" : "",
+    reviewTag(entry),
+    entry.authorModel ? `written by ${entry.authorModel}` : "",
     entry.license || "",
     ...(entry.tags || []),
   ].filter(Boolean);
 
   return (
-    '<div class="catalog-item"><div style="flex:1 1 auto;min-width:0">' +
+    `<div class="catalog-item"${entry.preview ? ' data-preview="true"' : ""}>` +
+    '<div style="flex:1 1 auto;min-width:0">' +
+    (entry.preview ? '<span class="chip preview-chip">Preview</span>' : "") +
     `<h3>${esc(entry.title)}</h3>` +
     (entry.description ? `<p>${esc(entry.description)}</p>` : "") +
     `<div class="catalog-meta">${meta.map((m) => `<span class="tag">${esc(m)}</span>`).join("")}</div>` +
@@ -103,6 +113,32 @@ async function renderHome(catalog) {
   $("main").scrollTop = 0;
 }
 
+/* ----------------------------------------------------------------- preview */
+
+/**
+ * The author's server marks the course being previewed in its catalog. The strip
+ * is driven by that data alone, so the published reader has no preview mode to
+ * leave switched on: a built catalog never carries the flag.
+ */
+function renderPreviewStrip(catalog) {
+  const entry = catalog.entries.find((e) => e.preview);
+  const strip = $("previewStrip");
+  strip.hidden = !entry;
+  if (!entry) return;
+  $("previewText").textContent =
+    `“${entry.title}” as readers will see it if you publish now. Progress here is only for this preview.`;
+  strip.dataset.courseId = entry.id;
+}
+
+function resetPreview() {
+  const id = $("previewStrip").dataset.courseId;
+  if (!id) return;
+  S.data.resetProgress(id);
+  if (S.course && S.course.id === id) S.course.progress = {};
+  toast("Preview progress cleared");
+  route();
+}
+
 /* ------------------------------------------------------------------ router */
 
 function parseHash() {
@@ -136,6 +172,7 @@ async function route() {
   }
   if (token !== routeToken) return;
   S.lenses = catalog.lenses;
+  renderPreviewStrip(catalog);
 
   if (kind !== "course" || !courseId) {
     await renderHome(catalog);
@@ -195,6 +232,7 @@ function wire() {
   });
 
   wireFlashcards();
+  $("previewReset").addEventListener("click", resetPreview);
 
   document.addEventListener("keydown", (e) => {
     if (!flashcardsOpen()) return;

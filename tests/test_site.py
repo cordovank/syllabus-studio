@@ -17,6 +17,7 @@ from syllabus_studio.storage.site import (
     build_site,
     bundle_filename,
     course_id_from_filename,
+    read_site_catalog,
 )
 
 
@@ -148,35 +149,126 @@ def test_bundle_file_names_are_checked_before_they_touch_anything() -> None:
         assert course_id_from_filename(bad) is None, bad
 
 
-# --- the server's preview of the same site ----------------------------------
+# --- the author's server: the site on disk, and previews over it --------------
 
 
-def test_the_server_serves_the_reader_from_the_same_generators(client, syllabus: str) -> None:
-    course = client.post("/api/v1/courses", json={"syllabus": syllabus}).json()
-    cid = course["id"]
-    lid = course["modules"][0]["lessons"][0]["id"]
-    client.post(f"/api/v1/courses/{cid}/lessons/{lid}/generate")
+def _course_with_a_lesson(client, syllabus: str, name: str) -> tuple[str, str]:
+    course = client.post("/api/v1/courses", json={"syllabus": syllabus, "name": name}).json()
+    cid, lid = course["id"], course["modules"][0]["lessons"][0]["id"]
+    assert client.post(f"/api/v1/courses/{cid}/lessons/{lid}/generate").status_code == 201
+    return cid, lid
 
+
+def _snapshot(folder: Path) -> dict[str, bytes]:
+    return {str(p.relative_to(folder)): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+
+
+def test_the_reader_root_serves_the_site_as_it_is_on_disk(client, settings, syllabus: str) -> None:
     res = client.get("/reader", follow_redirects=False)
     assert res.is_redirect
     assert res.headers["location"] == "/reader/", "the reader's relative paths need the slash"
 
-    catalog = client.get("/reader/catalog.json").json()
-    entry = next(e for e in catalog["entries"] if e["id"] == cid)
+    # nothing built yet: an empty catalog, not every draft in the store
+    _course_with_a_lesson(client, syllabus, "Drafted")
+    assert client.get("/reader/catalog.json").json()["entries"] == []
 
-    bundle = client.get(f"/reader/{entry['url']}").json()
-    assert bundle["course"]["id"] == cid
-    assert lid in bundle["lessons"]
-    assert bundle["course"]["progress"] == {}
+    client.portal.call(build_site, client.app.state.store, settings.site_dir)
+    entry = client.get("/reader/catalog.json").json()["entries"][0]
+    served = client.get(f"/reader/{entry['url']}")
+    assert served.status_code == 200
+    assert served.content == (settings.site_dir / entry["url"]).read_bytes()
 
     for _, dest in READER_FILES:
         assert client.get(f"/reader/{dest}").status_code == 200, dest
 
 
-def test_the_preview_serves_only_what_a_build_ships(client) -> None:
+def test_a_preview_is_the_site_with_one_course_upserted_and_nothing_written(
+    client, settings, syllabus: str
+) -> None:
+    published, _ = _course_with_a_lesson(client, syllabus, "Published")
+    client.portal.call(build_site, client.app.state.store, settings.site_dir)
+    draft, lid = _course_with_a_lesson(client, syllabus, "Draft")
+    before = _snapshot(settings.site_dir)
+
+    base = f"/reader/preview/{draft}/"
+    catalog = client.get(base + "catalog.json").json()
+    ids = [e["id"] for e in catalog["entries"]]
+    assert ids[0] == draft, "a course not yet on the site comes first"
+    assert published in ids, "the rest of the site is still there"
+
+    entry = catalog["entries"][0]
+    assert entry["preview"] is True
+    assert entry["humanReviewed"] is False
+    assert entry["authorModel"], "stamped from the current author settings"
+    assert not any(e.get("preview") for e in catalog["entries"][1:])
+
+    live = client.get(base + entry["url"]).json()
+    assert live["course"]["id"] == draft and lid in live["lessons"]
+    assert live["provenance"]["authorProvider"] == "echo"
+
+    other = next(e for e in catalog["entries"] if e["id"] == published)
+    assert (
+        client.get(base + other["url"]).content == (settings.site_dir / other["url"]).read_bytes()
+    ), "other courses are the site's copies, byte for byte"
+
+    assert client.get(base).status_code == 200
+    assert client.get(base + "static/js/reader.js").status_code == 200
+    assert _snapshot(settings.site_dir) == before, "a preview never writes the site"
+
+
+def test_previewing_a_published_course_keeps_what_the_author_set_by_hand(
+    client, settings, syllabus: str
+) -> None:
+    cid, _ = _course_with_a_lesson(client, syllabus, "Published")
+    client.portal.call(build_site, client.app.state.store, settings.site_dir)
+    other, _ = _course_with_a_lesson(client, syllabus, "Second")
+    client.portal.call(build_site, client.app.state.store, settings.site_dir)
+
+    path = settings.site_dir / "catalog.json"
+    catalog = json.loads(path.read_text(encoding="utf-8"))
+    position = [e["id"] for e in catalog["entries"]].index(cid)
+    catalog["entries"][position] |= {
+        "description": "Hand-written",
+        "tags": ["ml"],
+        "license": "CC BY 4.0",
+    }
+    path.write_text(json.dumps(catalog), encoding="utf-8")
+
+    previewed = client.get(f"/reader/preview/{cid}/catalog.json").json()["entries"]
+    assert [e["id"] for e in previewed].index(cid) == position, "an existing course keeps its place"
+    entry = previewed[position]
+    assert (entry["description"], entry["tags"], entry["license"]) == (
+        "Hand-written",
+        ["ml"],
+        "CC BY 4.0",
+    )
+    assert entry["preview"] is True
+
+
+def test_a_redirect_opens_the_previewed_course(client, syllabus: str) -> None:
+    cid, _ = _course_with_a_lesson(client, syllabus, "Draft")
+    res = client.get(f"/reader/preview/{cid}", follow_redirects=False)
+    assert res.headers["location"] == f"/reader/preview/{cid}/#/course/{cid}"
+
+
+def test_the_reader_serves_only_what_a_build_ships(client) -> None:
     # studio.js and api.js exist under /static for the Studio, but a reader that
-    # imported them would break once published — so the preview must 404 too.
-    for path in ("static/js/studio.js", "static/js/api.js", "static/js/library.js", "studio.html"):
-        assert client.get(f"/reader/{path}").status_code == 404, path
+    # imported them would break once published — so the server must 404 too.
+    for base in ("/reader/", "/reader/preview/some-course/"):
+        for path in (
+            "static/js/studio.js",
+            "static/js/api.js",
+            "static/js/library.js",
+            "studio.html",
+        ):
+            assert client.get(base + path).status_code == 404, base + path
     assert client.get("/reader/courses/..%2Fsecrets.course.json").status_code == 404
     assert client.get("/reader/courses/missing.course.json").status_code == 404
+    assert client.get("/reader/preview/missing/catalog.json").status_code == 404
+    assert client.get("/reader/preview/..%2F..%2Fetc/catalog.json").status_code == 404
+
+
+def test_a_catalog_on_disk_that_is_broken_reads_as_empty(tmp_path: Path) -> None:
+    (tmp_path / "catalog.json").write_text("{not json", encoding="utf-8")
+    assert read_site_catalog(tmp_path)["entries"] == []
+    assert read_site_catalog(tmp_path / "missing")["entries"] == []
