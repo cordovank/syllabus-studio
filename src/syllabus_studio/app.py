@@ -30,6 +30,7 @@ from syllabus_studio.api.routes import api_router
 from syllabus_studio.config import Settings, get_settings
 from syllabus_studio.core.models import LessonProgress
 from syllabus_studio.llm import get_provider
+from syllabus_studio.publishing import author_model_name
 from syllabus_studio.storage import CourseBundle, CourseStore, get_store
 from syllabus_studio.storage.site import (
     READER_FILES,
@@ -167,10 +168,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         def author_stamp(request: Request) -> dict[str, str]:
             provider = request.app.state.providers["author"]
-            if provider.name == "none":
-                return {"author_provider": "none", "author_model": ""}
-            model = settings.model_for_tier("default", provider.name)
-            return {"author_provider": provider.name, "author_model": model}
+            return {"author_provider": provider.name, "author_model": author_model_name(provider)}
 
         @app.get("/reader", include_in_schema=False)
         async def reader_root() -> RedirectResponse:

@@ -5,7 +5,8 @@
     syllabus-studio export <course-id> -o applied-ml.course.json
     syllabus-studio import applied-ml.course.json
     syllabus-studio enrich <course-id> [--lenses] [--faq] [--force]
-    syllabus-studio publish <course-id> -o applied-ml.course.json [--reviewed-by NAME]
+    syllabus-studio publish <course-id> [--reviewed-by NAME] [-o copy.course.json]
+    syllabus-studio unpublish <course-id>
     syllabus-studio list
     syllabus-studio site build [-o site/]
 """
@@ -20,13 +21,13 @@ from pathlib import Path
 
 from syllabus_studio import __version__
 from syllabus_studio.config import get_settings
-from syllabus_studio.core.authoring import enrich_course, enriched_passes
+from syllabus_studio.core.authoring import enrich_course
 from syllabus_studio.core.builder import build_course
-from syllabus_studio.core.lessons import LessonError, write_lesson
-from syllabus_studio.core.models import LessonProgress, now_ms
+from syllabus_studio.core.models import LessonProgress
 from syllabus_studio.llm import get_provider
-from syllabus_studio.storage import CourseBundle, Provenance, get_store, suggested_filename
-from syllabus_studio.storage.site import build_site
+from syllabus_studio.publishing import PublishError, author_model_name, publish_course
+from syllabus_studio.storage import CourseBundle, get_store, suggested_filename
+from syllabus_studio.storage.site import read_site_catalog, unpublish, write_reader_files
 
 
 async def _with_store(fn):  # noqa: ANN001, ANN202
@@ -131,68 +132,87 @@ async def _cmd_enrich(  # noqa: ANN001
 async def _cmd_publish(  # noqa: ANN001
     settings, store, *, course_id: str, out: Path | None, reviewed_by: str, force: bool
 ) -> int:
-    """The contributor's one command: write missing lessons, enrich, stamp, export."""
+    """The contributor's one command: write missing lessons, enrich, stamp, and write
+    the course into the site. Nothing goes live until the site is deployed."""
     course = await store.get_course(course_id)
     if course is None:
         print(f"No course {course_id!r}", file=sys.stderr)
         return 1
     provider = get_provider(settings, role="author")
-    model = settings.model_for_tier("default", provider.name)
+    if not provider.describe().get("available", True):
+        print("Publishing needs an authoring model; set SS_AUTHOR_PROVIDER.", file=sys.stderr)
+        return 1
 
-    # 1. every lesson written — a catalog course with holes in it isn't publishable
-    built = set(await store.list_built_lessons(course.id))
-    missing = [ls for _, _, ls in course.all_lessons() if ls.id not in built]
-    for n, lesson in enumerate(missing, start=1):
-        print(f"  writing [{n}/{len(missing)}] {lesson.id}  {lesson.title}")
-        try:
-            content = await write_lesson(
-                provider, course=course, lesson_id=lesson.id, model_name=model
-            )
-        except LessonError as exc:
-            print(f"Could not write {lesson.id}: {exc.code}: {exc.message}", file=sys.stderr)
-            print("Nothing exported. Re-run publish; written lessons are kept.", file=sys.stderr)
-            return 1
-        await store.save_lesson(course.id, lesson.id, content)
-        await store.set_progress(course.id, lesson.id, LessonProgress(built=True))
+    report: dict = {}
+    try:
+        async for event, payload in publish_course(
+            provider,
+            store,
+            course=course,
+            site_dir=settings.site_dir,
+            model_name=author_model_name(provider),
+            reviewer=reviewed_by,
+            force=force,
+        ):
+            if event == "published":
+                report = payload
+            else:
+                _print_progress(payload)
+    except PublishError as exc:
+        print(f"{exc.code}: {exc.message}", file=sys.stderr)
+        return 1
 
-    # 2. enrich; a shortfall is reported, and provenance below says exactly what's there
-    print("  enriching")
-    shortfall = await _run_enrich(provider, store, course, lenses=True, faq=True, force=force)
+    print(f"Published {report['title']} into {report['siteDir']}/{report['bundle']}")
+    print(f"  enriched: {', '.join(report['enriched']) or 'none'}")
+    for key, label in (
+        ("unwritten", "not written"),
+        ("missingLenses", "missing lenses"),
+        ("missingFaq", "missing a FAQ"),
+    ):
+        if report[key]:
+            print(f"  warning: {len(report[key])} lesson(s) {label}: {', '.join(report[key])}")
+    if not report["humanReviewed"]:
+        print("  warning: not human-reviewed; pass --reviewed-by NAME once someone has read it")
 
-    # 3. stamp and export
-    lessons = {}
-    for _, _, ls in course.all_lessons():
-        stored = await store.get_lesson(course.id, ls.id)
-        if stored is not None:
-            lessons[ls.id] = stored
-    bundle = CourseBundle.build(course, lessons)
-    bundle.provenance = Provenance(
-        author_provider=provider.name,
-        author_model=model,
-        depth=course.depth,
-        generated_at=now_ms(),
-        enriched=enriched_passes(lessons.values()),
-        human_reviewed=bool(reviewed_by),
-        reviewer=reviewed_by,
-    )
-    target = out or Path(suggested_filename(course))
-    bundle.write(target)
-
-    print(f"Wrote {target}  ({len(lessons)} lessons, enriched: "
-          f"{', '.join(bundle.provenance.enriched) or 'none'})")
-    if shortfall:
-        print(f"{shortfall} lesson(s) not fully enriched; re-run publish to fill the gaps.")
-    if not reviewed_by:
-        print("Marked as not human-reviewed. Pass --reviewed-by NAME once someone has read it.")
+    if out is not None:
+        bundle = CourseBundle.read(Path(report["siteDir"]) / report["bundle"])
+        bundle.write(out)
+        print(f"  also wrote {out}")
+    print("Nothing is live yet: deploy the site to publish it.")
     return 0
 
 
-async def _cmd_site_build(settings, store, *, out: Path | None) -> int:  # noqa: ANN001
-    report = await build_site(store, out or settings.site_dir)
-    print(f"Wrote {report.out_dir}  ({len(report.courses)} courses)")
-    for name in report.removed:
-        print(f"  removed {name} (course no longer exists)")
-    print(f"Open it:  python -m http.server -d {report.out_dir}  →  http://localhost:8000/")
+def _print_progress(p: dict) -> None:
+    if p["phase"] == "write":
+        if p["stage"] == "writing":
+            print(f"  writing [{p['done'] + 1}/{p['total']}] {p['lessonId']}")
+        return
+    stage = p["stage"]
+    if stage == "started":
+        return
+    detail = ""
+    if stage == "partial":
+        detail = f"  missing: {', '.join(p['missing'])}"
+    elif stage == "failed":
+        detail = f"  {p['code']}: {p['message']}"
+    print(f"  enrich  [{p['done']:>3}/{p['total']}] {p['lessonId']:<8} {stage}{detail}")
+
+
+def _cmd_unpublish(settings, *, course_id: str) -> int:  # noqa: ANN001
+    if not unpublish(settings.site_dir, course_id):
+        print(f"{course_id!r} isn't published in {settings.site_dir}", file=sys.stderr)
+        return 1
+    print(f"Removed {course_id} from {settings.site_dir}. Deploy the site to take it down.")
+    return 0
+
+
+def _cmd_site_build(settings, *, out: Path | None) -> int:  # noqa: ANN001
+    site_dir = out or settings.site_dir
+    written = write_reader_files(site_dir)
+    courses = len(read_site_catalog(site_dir)["entries"])
+    print(f"Refreshed the reader in {site_dir}  ({len(written)} files, {courses} courses)")
+    print("Courses enter the site by publishing:  syllabus-studio publish <course-id>")
+    print(f"Open it:  python -m http.server -d {site_dir}  →  http://localhost:8000/")
     return 0
 
 
@@ -222,15 +242,20 @@ def main(argv: list[str] | None = None) -> int:
     p_enrich.add_argument("--faq", action="store_true", help="only the FAQ")
     p_enrich.add_argument("--force", action="store_true", help="redo what already exists")
 
-    p_publish = sub.add_parser("publish", help="write, enrich, stamp provenance and export")
+    p_publish = sub.add_parser(
+        "publish", help="write, enrich, stamp provenance and write the course into the site"
+    )
     p_publish.add_argument("course_id")
-    p_publish.add_argument("-o", "--out", type=Path)
+    p_publish.add_argument("-o", "--out", type=Path, help="also write a copy of the bundle here")
     p_publish.add_argument("--reviewed-by", default="", metavar="NAME")
     p_publish.add_argument("--force", action="store_true", help="redo existing enrichment")
 
+    p_unpublish = sub.add_parser("unpublish", help="remove a course from the site")
+    p_unpublish.add_argument("course_id")
+
     p_site = sub.add_parser("site", help="the published reader: static files for any host")
     site_sub = p_site.add_subparsers(dest="site_command", required=True)
-    p_site_build = site_sub.add_parser("build", help="write the reader and every course")
+    p_site_build = site_sub.add_parser("build", help="refresh the reader; publishes nothing")
     p_site_build.add_argument("-o", "--out", type=Path, help="default: SS_SITE_DIR (./site)")
 
     args = parser.parse_args(argv)
@@ -270,8 +295,11 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
         )
+    # These two only touch files in the site, so they never open the course store.
+    if args.command == "unpublish":
+        return _cmd_unpublish(get_settings(), course_id=args.course_id)
     if args.command == "site" and args.site_command == "build":
-        return asyncio.run(_with_store(lambda s, st: _cmd_site_build(s, st, out=args.out)))
+        return _cmd_site_build(get_settings(), out=args.out)
     if args.command == "import":
         return asyncio.run(_with_store(lambda s, st: _cmd_import(s, st, path=args.path)))
     return 1

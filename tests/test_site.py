@@ -1,4 +1,5 @@
-"""The published reader as static files (spec 003, phase 1)."""
+"""The published reader as static files: publishing into the site, and serving it
+(spec 003, phases 1-3)."""
 
 from __future__ import annotations
 
@@ -8,93 +9,162 @@ from pathlib import Path
 
 import pytest
 
-from syllabus_studio.core.lessons import write_lesson
+from syllabus_studio.core.lessons import LessonError
 from syllabus_studio.core.models import Course, LessonProgress
+from syllabus_studio.publishing import PublishError, publish_course
 from syllabus_studio.storage import CourseBundle, SQLiteCourseStore
 from syllabus_studio.storage.site import (
     READER_FILES,
     WEB_DIR,
-    build_site,
     bundle_filename,
     course_id_from_filename,
+    publish_report,
     read_site_catalog,
+    unpublish,
+    write_reader_files,
 )
 
+MODEL = "test-model"
 
-async def _written_course(store: SQLiteCourseStore, course: Course, provider) -> Course:  # noqa: ANN001
-    """A course with its first lesson written and some personal progress on it."""
+
+async def _publish(store, provider, course: Course, site: Path, **kw) -> dict:  # noqa: ANN001
     saved = await store.save_course(course)
-    lesson_id = saved.all_lessons()[0][2].id
-    content = await write_lesson(provider, course=saved, lesson_id=lesson_id, model_name="test")
-    await store.save_lesson(saved.id, lesson_id, content)
-    return await store.set_progress(saved.id, lesson_id, LessonProgress(built=True, done=True))
+    events = [
+        e
+        async for e in publish_course(
+            provider, store, course=saved, site_dir=site, model_name=MODEL, **kw
+        )
+    ]
+    kind, report = events[-1]
+    assert kind == "published"
+    assert all(k == "progress" for k, _ in events[:-1])
+    return report
 
 
-# --- what a build writes --------------------------------------------------
+def _catalog(site: Path) -> dict:
+    return json.loads((site / "catalog.json").read_text(encoding="utf-8"))
 
 
-async def test_a_build_writes_the_reader_catalog_and_one_bundle_per_course(
+# --- publishing into the site ----------------------------------------------------
+
+
+async def test_publishing_writes_every_lesson_enriches_and_puts_the_course_in_the_site(
     tmp_path: Path, store: SQLiteCourseStore, course: Course, provider
 ) -> None:
-    saved = await _written_course(store, course, provider)
+    report = await _publish(store, provider, course, tmp_path)
 
-    report = await build_site(store, tmp_path / "site")
-    site = tmp_path / "site"
+    bundle = CourseBundle.read(tmp_path / "courses" / bundle_filename(course.id))
+    assert set(bundle.lessons) == {ls.id for _, _, ls in course.all_lessons()}, "none left out"
+    p = bundle.provenance
+    assert (p.author_provider, p.author_model) == ("echo", MODEL)
+    assert p.enriched == ["lenses", "faq"] and p.human_reviewed is False
+    assert bundle.published_at > 0
 
-    assert (site / "index.html").is_file()
-    assert (site / ".nojekyll").is_file(), "GitHub Pages would run Jekyll without it"
-    catalog = json.loads((site / "catalog.json").read_text(encoding="utf-8"))
-    assert [e["id"] for e in catalog["entries"]] == [saved.id]
-    assert {lens["id"] for lens in catalog["lenses"]} >= {"eli5", "analogy", "picture", "rigor"}
+    (entry,) = _catalog(tmp_path)["entries"]
+    assert entry["id"] == course.id
+    assert entry["authorModel"] == p.author_model, "catalog mirrors equal the bundle"
+    assert entry["humanReviewed"] is p.human_reviewed
+    assert entry["enriched"] == p.enriched
+    assert entry["publishedAt"] == bundle.published_at
+    assert (tmp_path / entry["url"]).is_file()
 
-    entry = catalog["entries"][0]
-    bundle_path = site / entry["url"]
-    assert bundle_path.is_file(), "every catalog url resolves to a file relative to catalog.json"
-    assert entry["lessonCount"] == len(saved.all_lessons())
-    assert report.courses == [bundle_filename(saved.id)]
+    assert (tmp_path / "index.html").is_file() and (tmp_path / ".nojekyll").is_file()
+    assert report["unwritten"] == report["missingLenses"] == report["missingFaq"] == []
+
+    stored = await store.get_course(course.id)
+    assert stored.provenance == p, "the course keeps what it was published with"
+
+
+async def test_publishing_twice_leaves_one_entry_and_keeps_what_the_author_set_by_hand(
+    tmp_path: Path, store: SQLiteCourseStore, course: Course, provider
+) -> None:
+    await _publish(store, provider, course, tmp_path)
+    catalog = _catalog(tmp_path)
+    by_hand = {"description": "Hand-written", "tags": ["ml"], "license": "CC BY 4.0"}
+    catalog["entries"][0] |= by_hand
+    (tmp_path / "catalog.json").write_text(json.dumps(catalog), encoding="utf-8")
+
+    await _publish(store, provider, course, tmp_path, reviewer="Ada")
+
+    (entry,) = _catalog(tmp_path)["entries"]
+    assert {k: entry[k] for k in by_hand} == by_hand
+    assert entry["humanReviewed"] is True, "republishing updated the rest"
 
 
 async def test_published_bundles_carry_lessons_never_progress(
     tmp_path: Path, store: SQLiteCourseStore, course: Course, provider
 ) -> None:
-    saved = await _written_course(store, course, provider)
-    await build_site(store, tmp_path)
+    course.progress = {"m1l1": LessonProgress(done=True, score=3, total=3)}
+    await _publish(store, provider, course, tmp_path)
 
-    bundle = CourseBundle.read(tmp_path / "courses" / bundle_filename(saved.id))
+    bundle = CourseBundle.read(tmp_path / "courses" / bundle_filename(course.id))
     assert bundle.course.progress == {}
-    assert list(bundle.lessons) == [saved.all_lessons()[0][2].id]
+    assert bundle.course.provenance is None, "provenance travels once, at the top"
 
 
-async def test_building_again_removes_bundles_of_deleted_courses_but_nothing_it_didnt_write(
-    tmp_path: Path, store: SQLiteCourseStore, course: Course, provider
-) -> None:
-    saved = await _written_course(store, course, provider)
-    await build_site(store, tmp_path)
-    (tmp_path / "CNAME").write_text("courses.example.com\n", encoding="utf-8")
-
-    await store.delete_course(saved.id)
-    report = await build_site(store, tmp_path)
-
-    assert not (tmp_path / "courses" / bundle_filename(saved.id)).exists()
-    assert report.removed == [bundle_filename(saved.id)]
-    assert (tmp_path / "CNAME").read_text(encoding="utf-8") == "courses.example.com\n"
-    assert json.loads((tmp_path / "catalog.json").read_text(encoding="utf-8"))["entries"] == []
-
-
-async def test_a_storage_failure_leaves_the_existing_site_untouched(
+async def test_a_lesson_that_fails_to_write_publishes_nothing(
     tmp_path: Path, store: SQLiteCourseStore, course: Course, provider, monkeypatch
 ) -> None:
-    await _written_course(store, course, provider)
-    await build_site(store, tmp_path)
+    other = course.model_copy(deep=True, update={"id": "other", "title": "Other"})
+    await _publish(store, provider, other, tmp_path)
     before = (tmp_path / "catalog.json").read_bytes()
 
-    async def broken(*_a, **_k):  # noqa: ANN002, ANN003, ANN202
-        raise RuntimeError("disk gone")
+    async def refuse(*_a, **_k):  # noqa: ANN002, ANN003, ANN202
+        raise LessonError("refused", "no")
 
-    monkeypatch.setattr(store, "list_built_lessons", broken)
-    with pytest.raises(RuntimeError):
-        await build_site(store, tmp_path)
-    assert (tmp_path / "catalog.json").read_bytes() == before
+    monkeypatch.setattr("syllabus_studio.core.publishing.write_lesson", refuse)
+    with pytest.raises(PublishError) as err:
+        await _publish(store, provider, course, tmp_path)
+
+    assert err.value.code == "refused"
+    assert (tmp_path / "catalog.json").read_bytes() == before, "catalog.json byte-identical"
+    assert not (tmp_path / "courses" / bundle_filename(course.id)).exists()
+
+
+async def test_unpublishing_removes_the_entry_and_bundle_and_nothing_else(
+    tmp_path: Path, store: SQLiteCourseStore, course: Course, provider
+) -> None:
+    other = course.model_copy(deep=True, update={"id": "other", "title": "Other"})
+    await _publish(store, provider, other, tmp_path)
+    await _publish(store, provider, course, tmp_path)
+    (tmp_path / "CNAME").write_text("courses.example.com\n", encoding="utf-8")
+
+    assert unpublish(tmp_path, course.id) is True
+
+    assert [e["id"] for e in _catalog(tmp_path)["entries"]] == ["other"]
+    assert not (tmp_path / "courses" / bundle_filename(course.id)).exists()
+    assert (tmp_path / "courses" / bundle_filename("other")).exists()
+    assert (tmp_path / "CNAME").read_text(encoding="utf-8") == "courses.example.com\n"
+    assert unpublish(tmp_path, course.id) is False, "nothing left to remove"
+    assert unpublish(tmp_path, "../escape") is False
+
+
+def test_site_build_refreshes_the_reader_and_publishes_nothing(tmp_path: Path) -> None:
+    write_reader_files(tmp_path)
+    assert (tmp_path / "index.html").is_file() and (tmp_path / ".nojekyll").is_file()
+    assert _catalog(tmp_path)["entries"] == []
+
+    catalog = {
+        "name": "Mine",
+        "entries": [{"id": "x", "title": "X", "url": "courses/x.course.json"}],
+    }
+    (tmp_path / "catalog.json").write_text(json.dumps(catalog), encoding="utf-8")
+    (tmp_path / "CNAME").write_text("c.example.com", encoding="utf-8")
+    write_reader_files(tmp_path)
+
+    assert json.loads((tmp_path / "catalog.json").read_text(encoding="utf-8")) == catalog
+    assert (tmp_path / "CNAME").exists()
+
+
+def test_the_report_names_what_a_reader_would_find_missing(course: Course) -> None:
+    from syllabus_studio.core.models import LessonContent
+
+    bundle = CourseBundle.build(course, {"m1l1": LessonContent(big_idea="x")})
+    report = publish_report(bundle, {"url": "courses/c1.course.json"}, Path("site"))
+
+    assert report["unwritten"] == ["m1l2"]
+    assert report["missingLenses"] == ["m1l1"] and report["missingFaq"] == ["m1l1"]
+    assert report["humanReviewed"] is False
 
 
 # --- the reader's files -----------------------------------------------------
@@ -149,18 +219,87 @@ def test_bundle_file_names_are_checked_before_they_touch_anything() -> None:
         assert course_id_from_filename(bad) is None, bad
 
 
-# --- the author's server: the site on disk, and previews over it --------------
+# --- the author's server: publish, unpublish, the site on disk, previews ----------
 
 
-def _course_with_a_lesson(client, syllabus: str, name: str) -> tuple[str, str]:
-    course = client.post("/api/v1/courses", json={"syllabus": syllabus, "name": name}).json()
-    cid, lid = course["id"], course["modules"][0]["lessons"][0]["id"]
-    assert client.post(f"/api/v1/courses/{cid}/lessons/{lid}/generate").status_code == 201
-    return cid, lid
+def _sse(text: str) -> list[tuple[str, dict]]:
+    frames = []
+    for block in text.strip().split("\n\n"):
+        fields = dict(line.split(": ", 1) for line in block.splitlines())
+        frames.append((fields["event"], json.loads(fields["data"])))
+    return frames
+
+
+def _course(client, syllabus: str, name: str) -> str:
+    return client.post("/api/v1/courses", json={"syllabus": syllabus, "name": name}).json()["id"]
+
+
+def _publish_via_api(client, cid: str, **body) -> dict:  # noqa: ANN003
+    res = client.post(f"/api/v1/courses/{cid}/publish", json=body)
+    assert res.status_code == 200, res.text
+    frames = _sse(res.text)
+    event, report = frames[-1]
+    assert event == "done", frames[-1]
+    assert {e for e, _ in frames[:-1]} <= {"progress"}
+    return report
 
 
 def _snapshot(folder: Path) -> dict[str, bytes]:
     return {str(p.relative_to(folder)): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+
+
+def test_publishing_through_the_api_streams_progress_then_the_report(
+    client, settings, syllabus: str
+) -> None:
+    cid = _course(client, syllabus, "Applied ML")
+    report = _publish_via_api(client, cid, reviewedBy="Ada")
+
+    assert report["courseId"] == cid and report["humanReviewed"] is True
+    assert report["reviewer"] == "Ada"
+    assert (settings.site_dir / report["bundle"]).is_file()
+
+    status = client.get("/api/v1/site").json()
+    assert [c["id"] for c in status["courses"]] == [cid]
+    assert status["courses"][0]["publishedAt"] == report["publishedAt"]
+
+    exported = json.loads(client.get(f"/api/v1/courses/{cid}/export").text)
+    assert exported["provenance"]["reviewer"] == "Ada", "an export says what was published"
+
+
+def test_publishing_needs_an_author_model_before_the_stream_opens(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    from syllabus_studio.app import create_app
+    from syllabus_studio.config import Settings
+    from syllabus_studio.storage.bundle import CourseBundle as Bundle
+
+    settings = Settings(
+        _env_file=None,
+        llm_provider="none",
+        author_provider="",
+        reader_provider="",
+        db_path=tmp_path / "t.db",
+        site_dir=tmp_path / "site",
+        seed_demo_course=False,
+    )
+    with TestClient(create_app(settings)) as client:
+        demo = Path(__file__).resolve().parents[1] / "src/syllabus_studio/data/demo_course.json"
+        bundle = Bundle.read(demo).model_dump(by_alias=True)
+        cid = client.post("/api/v1/courses/import", json={"bundle": bundle}).json()["id"]
+
+        res = client.post(f"/api/v1/courses/{cid}/publish", json={})
+        assert res.status_code == 503
+        assert res.json()["code"] == "not_configured"
+        assert not (tmp_path / "site").exists(), "nothing was written"
+
+
+def test_unpublishing_through_the_api(client, settings, syllabus: str) -> None:
+    cid = _course(client, syllabus, "Applied ML")
+    _publish_via_api(client, cid)
+
+    assert client.delete(f"/api/v1/courses/{cid}/publish").status_code == 204
+    assert client.get("/api/v1/site").json()["courses"] == []
+    assert client.delete(f"/api/v1/courses/{cid}/publish").status_code == 404
 
 
 def test_the_reader_root_serves_the_site_as_it_is_on_disk(client, settings, syllabus: str) -> None:
@@ -168,11 +307,11 @@ def test_the_reader_root_serves_the_site_as_it_is_on_disk(client, settings, syll
     assert res.is_redirect
     assert res.headers["location"] == "/reader/", "the reader's relative paths need the slash"
 
-    # nothing built yet: an empty catalog, not every draft in the store
-    _course_with_a_lesson(client, syllabus, "Drafted")
+    # nothing published yet: an empty catalog, not every draft in the store
+    cid = _course(client, syllabus, "Drafted")
     assert client.get("/reader/catalog.json").json()["entries"] == []
 
-    client.portal.call(build_site, client.app.state.store, settings.site_dir)
+    _publish_via_api(client, cid)
     entry = client.get("/reader/catalog.json").json()["entries"][0]
     served = client.get(f"/reader/{entry['url']}")
     assert served.status_code == 200
@@ -185,9 +324,11 @@ def test_the_reader_root_serves_the_site_as_it_is_on_disk(client, settings, syll
 def test_a_preview_is_the_site_with_one_course_upserted_and_nothing_written(
     client, settings, syllabus: str
 ) -> None:
-    published, _ = _course_with_a_lesson(client, syllabus, "Published")
-    client.portal.call(build_site, client.app.state.store, settings.site_dir)
-    draft, lid = _course_with_a_lesson(client, syllabus, "Draft")
+    published = _course(client, syllabus, "Published")
+    _publish_via_api(client, published)
+    draft = _course(client, syllabus, "Draft")
+    lid = client.get(f"/api/v1/courses/{draft}").json()["modules"][0]["lessons"][0]["id"]
+    assert client.post(f"/api/v1/courses/{draft}/lessons/{lid}/generate").status_code == 201
     before = _snapshot(settings.site_dir)
 
     base = f"/reader/preview/{draft}/"
@@ -200,6 +341,7 @@ def test_a_preview_is_the_site_with_one_course_upserted_and_nothing_written(
     assert entry["preview"] is True
     assert entry["humanReviewed"] is False
     assert entry["authorModel"], "stamped from the current author settings"
+    assert "publishedAt" not in entry, "a preview isn't published"
     assert not any(e.get("preview") for e in catalog["entries"][1:])
 
     live = client.get(base + entry["url"]).json()
@@ -216,37 +358,8 @@ def test_a_preview_is_the_site_with_one_course_upserted_and_nothing_written(
     assert _snapshot(settings.site_dir) == before, "a preview never writes the site"
 
 
-def test_previewing_a_published_course_keeps_what_the_author_set_by_hand(
-    client, settings, syllabus: str
-) -> None:
-    cid, _ = _course_with_a_lesson(client, syllabus, "Published")
-    client.portal.call(build_site, client.app.state.store, settings.site_dir)
-    other, _ = _course_with_a_lesson(client, syllabus, "Second")
-    client.portal.call(build_site, client.app.state.store, settings.site_dir)
-
-    path = settings.site_dir / "catalog.json"
-    catalog = json.loads(path.read_text(encoding="utf-8"))
-    position = [e["id"] for e in catalog["entries"]].index(cid)
-    catalog["entries"][position] |= {
-        "description": "Hand-written",
-        "tags": ["ml"],
-        "license": "CC BY 4.0",
-    }
-    path.write_text(json.dumps(catalog), encoding="utf-8")
-
-    previewed = client.get(f"/reader/preview/{cid}/catalog.json").json()["entries"]
-    assert [e["id"] for e in previewed].index(cid) == position, "an existing course keeps its place"
-    entry = previewed[position]
-    assert (entry["description"], entry["tags"], entry["license"]) == (
-        "Hand-written",
-        ["ml"],
-        "CC BY 4.0",
-    )
-    assert entry["preview"] is True
-
-
 def test_a_redirect_opens_the_previewed_course(client, syllabus: str) -> None:
-    cid, _ = _course_with_a_lesson(client, syllabus, "Draft")
+    cid = _course(client, syllabus, "Draft")
     res = client.get(f"/reader/preview/{cid}", follow_redirects=False)
     assert res.headers["location"] == f"/reader/preview/{cid}/#/course/{cid}"
 
@@ -272,3 +385,18 @@ def test_a_catalog_on_disk_that_is_broken_reads_as_empty(tmp_path: Path) -> None
     (tmp_path / "catalog.json").write_text("{not json", encoding="utf-8")
     assert read_site_catalog(tmp_path)["entries"] == []
     assert read_site_catalog(tmp_path / "missing")["entries"] == []
+
+
+def test_provenance_names_the_model_that_actually_wrote_the_course(tmp_path: Path) -> None:
+    from syllabus_studio.config import Settings
+    from syllabus_studio.llm import get_provider
+    from syllabus_studio.publishing import author_model_name
+
+    base = {"author_provider": "", "reader_provider": "", "db_path": tmp_path / "t.db"}
+    echo = get_provider(Settings(_env_file=None, llm_provider="echo", **base))
+    assert author_model_name(echo) == "echo", "never the generic Claude default"
+
+    ollama = Settings(_env_file=None, llm_provider="ollama", **base)
+    assert author_model_name(get_provider(ollama)) == ollama.model_for_tier("default", "ollama")
+    none = get_provider(Settings(_env_file=None, llm_provider="none", **base))
+    assert author_model_name(none) == ""

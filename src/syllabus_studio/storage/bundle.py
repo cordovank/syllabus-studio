@@ -15,7 +15,9 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from syllabus_studio.core.ids import course_id as new_course_id
-from syllabus_studio.core.models import Base, Course, LessonContent, now_ms
+from syllabus_studio.core.models import Course, LessonContent, Provenance, now_ms
+
+__all__ = ["FORMAT", "FORMAT_VERSION", "CourseBundle", "Provenance", "suggested_filename"]
 
 FORMAT = "syllabus-studio/course-bundle"
 # Not bumped for lenses, faq or provenance: they are additive, and unknown keys
@@ -29,25 +31,6 @@ def _camel(s: str) -> str:
     return head + "".join(w.capitalize() for w in rest)
 
 
-class Provenance(Base):
-    """Who and what produced a bundle's content.
-
-    An open catalog is only as trustworthy as its worst entry, so a bundle says
-    which model wrote it and whether a person has read it. The defaults describe
-    the honest unknown: no recorded model, not reviewed.
-    """
-
-    author_provider: str = ""
-    author_model: str = ""
-    depth: str = ""
-    generated_at: int = 0
-    enriched: list[str] = Field(default_factory=list)
-    """Authoring passes that ran over every lesson, e.g. ["lenses", "faq"]."""
-    human_reviewed: bool = False
-    reviewer: str = ""
-    note: str = ""
-
-
 class CourseBundle(BaseModel):
     model_config = ConfigDict(alias_generator=_camel, populate_by_name=True)
 
@@ -59,6 +42,8 @@ class CourseBundle(BaseModel):
     course: Course
     lessons: dict[str, LessonContent] = Field(default_factory=dict)
     provenance: Provenance = Field(default_factory=Provenance)
+    published_at: int = 0
+    """When ``publish`` wrote this bundle into a site; 0 for a plain export. Additive."""
 
     # -- build -------------------------------------------------------------
 
@@ -67,7 +52,14 @@ class CourseBundle(BaseModel):
         clean = course.model_copy(deep=True)
         clean.progress = {}
         clean.demo = False
-        return CourseBundle(course=clean, lessons=lessons, license=license)
+        # Provenance travels once, at the top of the bundle, not again inside the course.
+        clean.provenance = None
+        return CourseBundle(
+            course=clean,
+            lessons=lessons,
+            license=license,
+            provenance=(course.provenance or Provenance()).model_copy(deep=True),
+        )
 
     # -- io ----------------------------------------------------------------
 
@@ -104,6 +96,9 @@ class CourseBundle(BaseModel):
         if not keep_id:
             course.id = new_course_id(course.title)
         course.origin = origin
+        # Kept so re-exporting an installed course still says who wrote it; only
+        # publishing ever stamps new provenance.
+        course.provenance = self.provenance.model_copy(deep=True)
         course.progress = {}
         course.demo = False
         course.created_at = now_ms()

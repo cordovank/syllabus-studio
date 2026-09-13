@@ -487,8 +487,8 @@ h1.lesson-title{font-size:clamp(28px,4.4vw,38px);letter-spacing:-.028em;line-hei
 .foot-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;width:100%}
 
 a.btn{text-decoration:none}
-/* .btn sets display, which would otherwise beat the hidden attribute */
-.btn[hidden]{display:none}
+/* .btn and .field set display, which would otherwise beat the hidden attribute */
+.btn[hidden],.field[hidden]{display:none}
 
 /* ---------- studio ---------- */
 .wrap-wide{max-width:960px}
@@ -542,3 +542,11 @@ a.mark{color:inherit;text-decoration:none}
 .preview-text{flex:1 1 240px;min-width:0}
 .preview-chip{margin-bottom:6px}
 .catalog-item[data-preview="true"]{border-color:var(--accent)}
+
+/* studio: publishing */
+.pub-status{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+.pub-status[data-state="published"]{color:var(--good)}
+.pub-status[data-state="busy"]{color:var(--accent-ink)}
+.pub-line{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--ink-2)}
+.pub-done{display:grid;gap:10px;font-size:14px;line-height:1.5}
+.pub-warn{margin:0;padding-left:18px;color:var(--warn);display:grid;gap:4px}

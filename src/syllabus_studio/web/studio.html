@@ -76,6 +76,34 @@
   </div>
 </div>
 
+<!-- publish -->
+<div class="scrim" id="pubSheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pubTitle" style="width:min(560px,100%)">
+    <div class="sheet-head">
+      <div style="flex:1 1 auto">
+        <h2 id="pubTitle">Publish</h2>
+        <p>Writes any lessons that are missing, precomputes the lenses and a FAQ for every lesson, then puts the course into <code id="pubSiteDir">site/</code>. Nothing goes live until you deploy the site.</p>
+      </div>
+      <button class="icon-btn" id="pubClose" aria-label="Close">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="sheet-body">
+      <div class="field" id="pubForm">
+        <label for="pubReviewer">Reviewed by <span style="text-transform:none;letter-spacing:0;font-weight:500">— leave empty if no one has read it yet; readers will see “not reviewed”</span></label>
+        <input type="text" id="pubReviewer" placeholder="Your name" autocomplete="name">
+      </div>
+      <div id="pubProgress" aria-live="polite"></div>
+      <div id="pubResult"></div>
+    </div>
+    <div class="sheet-foot">
+      <div style="flex:1 1 auto"></div>
+      <button class="btn" id="pubCancel">Cancel</button>
+      <button class="btn btn-primary" id="pubGo">Publish</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast" hidden></div>
 
 <script type="module" src="/static/js/studio.js"></script>

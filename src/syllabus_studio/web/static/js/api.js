@@ -75,16 +75,23 @@ export const api = {
   installEntry: (entryId) => req("POST", `/catalog/${enc(entryId)}/install`),
   importBundle: (bundle) => req("POST", "/courses/import", { bundle }),
   exportUrl: (cid) => `${BASE}/courses/${enc(cid)}/export`,
+
+  // publishing into the site: nothing goes live until the site is deployed
+  site: () => req("GET", "/site"),
+  publish: (cid, { reviewedBy = "", force = false } = {}, opts = {}) =>
+    streamEvents(`/courses/${enc(cid)}/publish`, { reviewedBy, force }, opts),
+  unpublish: (cid) => req("DELETE", `/courses/${enc(cid)}/publish`),
 };
 
 /**
- * Read one server-sent-event stream.
+ * Read one server-sent-event stream of named JSON frames.
  *
- * Calls `onDelta(wholeSoFar, delta)` as text arrives and resolves with the
- * complete answer. Rejects with an ApiError carrying `.partial` when the
- * server reports a mid-stream failure.
+ * Calls `onEvent(name, payload)` for every frame before the end, resolves with the
+ * `done` payload, and rejects with an ApiError on an `error` frame — by then the
+ * 200 was already sent, so failures arrive in-band. A non-2xx before the stream
+ * opens (say, 503 with no author model) rejects the same way.
  */
-export async function streamSSE(path, body, { onDelta, signal } = {}) {
+export async function streamEvents(path, body, { onEvent, signal } = {}) {
   let res;
   try {
     res = await fetch(BASE + path, {
@@ -115,7 +122,6 @@ export async function streamSSE(path, body, { onDelta, signal } = {}) {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let whole = "";
 
   try {
     for (;;) {
@@ -143,28 +149,19 @@ export async function streamSSE(path, body, { onDelta, signal } = {}) {
           continue;
         }
 
-        if (event === "delta") {
-          whole += payload.text;
-          if (onDelta) onDelta(whole, payload.text);
-        } else if (event === "done") {
-          return typeof payload.text === "string" ? payload.text : whole;
-        } else if (event === "error") {
-          const err = new ApiError(payload.code || "upstream_error", payload.message || "Failed", 200);
-          err.partial = payload.partial || whole;
-          throw err;
+        if (event === "done") return payload;
+        if (event === "error") {
+          throw new ApiError(payload.code || "upstream_error", payload.message || "Failed", 200);
         }
+        if (onEvent) onEvent(event, payload);
       }
     }
   } catch (e) {
-    if (signal && signal.aborted) {
-      const err = new ApiError("cancelled", "Stopped.", 0);
-      err.partial = whole;
-      throw err;
-    }
+    if (signal && signal.aborted) throw new ApiError("cancelled", "Stopped.", 0);
     throw e;
   }
 
-  return whole;
+  throw new ApiError("upstream_error", "The stream ended before it finished.", 200);
 }
 
 /** Server error code -> something worth showing a person. */

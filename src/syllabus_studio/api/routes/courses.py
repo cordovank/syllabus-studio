@@ -11,10 +11,12 @@ from syllabus_studio.core.authoring import enrich_course
 from syllabus_studio.core.builder import build_course
 from syllabus_studio.core.models import Course, CourseSummary, LessonProgress
 from syllabus_studio.llm import LLMError
-from syllabus_studio.storage import CourseBundle, suggested_filename
+from syllabus_studio.publishing import author_model_name, publish_course
+from syllabus_studio.storage import CourseBundle, StorageError, suggested_filename
+from syllabus_studio.storage.site import site_status, unpublish
 
 from ..deps import AuthorProviderDep, CourseDep, SettingsDep, StoreDep
-from ..schemas import BuildCourseRequest, ImportRequest
+from ..schemas import BuildCourseRequest, ImportRequest, PublishRequest
 from ..sse import event_response
 
 router = APIRouter(tags=["courses"])
@@ -70,6 +72,54 @@ async def enrich_whole_course(
         yield "done", {"total": len(course.all_lessons()), "outcomes": tally}
 
     return event_response(events())
+
+
+# --- publishing into the site (spec 002 §4, spec 003 §4) ---------------------
+
+
+@router.post("/courses/{course_id}/publish")
+async def publish(
+    body: PublishRequest,
+    course: CourseDep,
+    provider: AuthorProviderDep,
+    store: StoreDep,
+    settings: SettingsDep,
+) -> StreamingResponse:
+    """Write missing lessons, enrich, stamp provenance, and write the course into the
+    site. Takes minutes, so it streams ``progress`` frames and ends on ``done`` with
+    the report. Nothing goes live: deploying the site is a separate step."""
+    if not provider.describe().get("available", True):
+        raise LLMError("not_configured", "Publishing needs an authoring model; none is configured.")
+
+    async def events() -> AsyncIterator[tuple[str, dict[str, Any]]]:
+        async for event, payload in publish_course(
+            provider,
+            store,
+            course=course,
+            site_dir=settings.site_dir,
+            model_name=author_model_name(provider),
+            reviewer=body.reviewed_by,
+            force=body.force,
+        ):
+            yield ("done" if event == "published" else event), payload
+
+    return event_response(events())
+
+
+@router.delete("/courses/{course_id}/publish", status_code=status.HTTP_204_NO_CONTENT)
+async def unpublish_course(course_id: str, settings: SettingsDep) -> Response:
+    """Take a course out of the site. Needs no course in the store: a course deleted
+    from the Studio can still be taken down."""
+    if not unpublish(settings.site_dir, course_id):
+        raise StorageError("not_found", f"{course_id!r} isn't published in {settings.site_dir}.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/site")
+async def site(settings: SettingsDep) -> dict[str, Any]:
+    """What the site holds right now: ``{dir, exists, courses: [{id, title, publishedAt,
+    humanReviewed}]}``."""
+    return site_status(settings.site_dir)
 
 
 @router.get("/courses/{course_id}", response_model=Course)

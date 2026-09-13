@@ -56,6 +56,28 @@ class LessonProgress(Base):
     total: int | None = None
 
 
+class Provenance(Base):
+    """Who and what produced a course's content.
+
+    An open catalog is only as trustworthy as its worst entry, so a bundle says
+    which model wrote it and whether a person has read it. The defaults describe
+    the honest unknown: no recorded model, not reviewed.
+
+    Lives here, not in ``storage.bundle``, because a course carries it: it is
+    stamped by publishing and must survive import and re-export untouched.
+    """
+
+    author_provider: str = ""
+    author_model: str = ""
+    depth: str = ""
+    generated_at: int = 0
+    enriched: list[str] = Field(default_factory=list)
+    """Authoring passes that ran over every lesson, e.g. ["lenses", "faq"]."""
+    human_reviewed: bool = False
+    reviewer: str = ""
+    note: str = ""
+
+
 class Course(Base):
     id: str
     title: str
@@ -70,6 +92,9 @@ class Course(Base):
     demo: bool = False
     origin: str = "local"
     """local | imported | catalog:<entry-id> — where this course came from."""
+    provenance: Provenance | None = None
+    """Set by publishing, or carried in from an imported bundle. ``None`` means no
+    one has stamped it — rows stored before this field existed load as that."""
     created_at: int = Field(default_factory=now_ms)
     updated_at: int = Field(default_factory=now_ms)
 

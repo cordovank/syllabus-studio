@@ -155,3 +155,35 @@ def test_a_catalog_entry_without_provenance_mirrors_still_loads() -> None:
     assert entry.human_reviewed is False
     assert entry.lesson_count is None
     assert entry.enriched == []
+
+
+# --- provenance survives import and re-export (spec 002 §4) ------------------
+
+
+def test_provenance_survives_import_then_export_unchanged(course: Course) -> None:
+    published = CourseBundle.build(course, {"m1l1": _enriched()})
+    published.provenance = Provenance(
+        author_provider="anthropic", author_model="m", human_reviewed=True, reviewer="Ada"
+    )
+
+    installed = CourseBundle.parse(published.to_json()).materialise()
+    reexported = CourseBundle.build(installed, {"m1l1": _enriched()})
+
+    assert reexported.provenance == published.provenance, "only publishing stamps provenance"
+    assert reexported.course.provenance is None, "it travels once, at the top of the bundle"
+
+
+def test_a_course_stored_before_provenance_existed_still_loads_and_exports(course: Course) -> None:
+    row = course.model_dump(by_alias=True)
+    del row["provenance"]  # what an older database row looks like
+
+    loaded = Course.model_validate(row)
+    assert loaded.provenance is None
+    assert CourseBundle.build(loaded, {}).provenance == Provenance()
+
+
+def test_published_at_is_additive(course: Course) -> None:
+    payload = CourseBundle.build(course, {}).model_dump(by_alias=True)
+    assert payload["publishedAt"] == 0 and payload["formatVersion"] == 1
+    del payload["publishedAt"]
+    assert CourseBundle.parse(payload).published_at == 0

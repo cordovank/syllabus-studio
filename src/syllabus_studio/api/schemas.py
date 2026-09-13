@@ -53,6 +53,13 @@ class ImportRequest(Base):
     keep_id: bool = False
 
 
+class PublishRequest(Base):
+    reviewed_by: str = ""
+    """Who read it. Empty publishes it marked *not reviewed*, and the catalog says so."""
+    force: bool = False
+    """Redo enrichment that already exists. Never rewrites a lesson."""
+
+
 class Capabilities(Base):
     """What this install can do, each answered by the role that serves it."""
 

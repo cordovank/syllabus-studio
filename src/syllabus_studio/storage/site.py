@@ -3,7 +3,11 @@
 A site is the reader's own pages plus ``catalog.json`` plus one bundle per course.
 Readers open it from any static host; nothing in it calls ``/api/v1``.
 
-The same generators feed ``syllabus-studio site build`` and the server's reader:
+Courses enter the site one at a time, by publishing (:func:`publish_to_site`), and
+leave by :func:`unpublish`. ``syllabus-studio site build`` only refreshes the
+reader's own files (:func:`write_reader_files`), so it can never publish a draft.
+
+The author's server reads the same files:
 
 - ``/reader/`` serves the site as it is on disk (:func:`read_site_catalog`).
 - ``/reader/preview/<id>/`` serves that catalog with one course upserted as it would
@@ -19,7 +23,6 @@ import os
 import re
 import shutil
 import tempfile
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -102,24 +105,13 @@ def catalog_entry(bundle: CourseBundle, *, with_provenance: bool = False) -> dic
             "humanReviewed": p.human_reviewed,
             "enriched": list(p.enriched),
         }
+    if bundle.published_at:
+        entry["publishedAt"] = bundle.published_at
     return entry
 
 
 def empty_catalog() -> dict[str, Any]:
     return {"name": "Courses", "lenses": available_lenses(), "entries": []}
-
-
-async def site_catalog(store: CourseStore) -> dict[str, Any]:
-    """``catalog.json`` for every stored course, bundle URLs relative to the catalog.
-
-    Carries the lens labels too: the reader has no ``/lenses`` endpoint to ask.
-    """
-    catalog = empty_catalog()
-    for summary in await store.list_courses():
-        bundle = await site_bundle(store, summary.id)
-        if bundle is not None:
-            catalog["entries"].append(catalog_entry(bundle))
-    return catalog
 
 
 def read_site_catalog(site_dir: Path) -> dict[str, Any]:
@@ -166,13 +158,19 @@ def site_bundle_path(site_dir: Path, name: str) -> Path | None:
     return path if path.is_file() else None
 
 
-# --- preview ------------------------------------------------------------------
+# --- stamping and preview ------------------------------------------------------
 
 
 def stamp_provenance(
-    bundle: CourseBundle, *, author_provider: str, author_model: str, reviewer: str = ""
+    bundle: CourseBundle,
+    *,
+    author_provider: str,
+    author_model: str,
+    reviewer: str = "",
+    published: bool = False,
 ) -> CourseBundle:
-    """Provenance as publishing would write it now. Returns a copy."""
+    """Provenance as publishing writes it now; ``published`` also sets ``publishedAt``,
+    which a preview leaves at 0. Returns a copy."""
     stamped = bundle.model_copy(deep=True)
     stamped.provenance = Provenance(
         author_provider=author_provider,
@@ -183,6 +181,7 @@ def stamp_provenance(
         human_reviewed=bool(reviewer),
         reviewer=reviewer,
     )
+    stamped.published_at = now_ms() if published else 0
     return stamped
 
 
@@ -218,15 +217,8 @@ async def preview_catalog(
     return upsert_entry(read_site_catalog(site_dir), entry)
 
 
-@dataclass
-class SiteReport:
-    out_dir: Path
-    courses: list[str] = field(default_factory=list)
-    removed: list[str] = field(default_factory=list)
-
-
 def _write_atomic(path: Path, text: str) -> None:
-    """Temp file then rename, so a failed build never leaves half a catalog."""
+    """Temp file then rename, so a failed write never leaves half a catalog."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
     try:
@@ -240,43 +232,108 @@ def _write_atomic(path: Path, text: str) -> None:
         raise
 
 
-async def build_site(store: CourseStore, out_dir: Path) -> SiteReport:
-    """Write the reader, the catalog and every course bundle into ``out_dir``.
+def _write_catalog(site_dir: Path, catalog: dict[str, Any]) -> None:
+    text = json.dumps(catalog, indent=2, ensure_ascii=False)
+    _write_atomic(Path(site_dir) / "catalog.json", text)
 
-    Never deletes a file it didn't write: a ``CNAME`` or anything else the author
-    put there survives. The one exception is ``courses/``, which is ours — a
-    bundle whose course is gone is removed so it can't be installed by URL.
+
+# --- writing the site -------------------------------------------------------------
+
+
+def write_reader_files(site_dir: Path) -> list[str]:
+    """Refresh the reader in the site: its pages, ``.nojekyll``, and an empty catalog if
+    there is none yet. Touches no course. Idempotent. Returns the paths written.
+
+    Never deletes a file it didn't write, so a ``CNAME`` or anything else the author
+    put in the site survives.
     """
-    out_dir = Path(out_dir)
-    report = SiteReport(out_dir=out_dir)
-
-    # Generate everything before touching the site, so a storage error changes nothing.
-    catalog = await site_catalog(store)
-    bundles: dict[str, str] = {}
-    for entry in catalog["entries"]:
-        bundle = await site_bundle(store, entry["id"])
-        if bundle is not None:
-            bundles[bundle_filename(entry["id"])] = bundle.to_json()
-
+    site_dir = Path(site_dir)
+    written = []
     for source, dest in READER_FILES:
-        target = out_dir / dest
+        target = site_dir / dest
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(WEB_DIR / source, target)
+        written.append(dest)
 
     # GitHub Pages runs Jekyll unless told not to, and Jekyll drops some files.
-    (out_dir / ".nojekyll").touch()
+    (site_dir / ".nojekyll").touch()
+    if not (site_dir / "catalog.json").exists():
+        _write_catalog(site_dir, empty_catalog())
+        written.append("catalog.json")
+    return written
 
-    courses = out_dir / COURSES_DIR
-    courses.mkdir(parents=True, exist_ok=True)
-    for name, text in bundles.items():
-        _write_atomic(courses / name, text)
-        report.courses.append(name)
 
-    for stale in sorted(courses.glob("*.course.json")):
-        if stale.name not in bundles:
-            stale.unlink()
-            report.removed.append(stale.name)
+def publish_to_site(site_dir: Path, bundle: CourseBundle) -> dict[str, Any]:
+    """Write one stamped bundle into the site and upsert its catalog entry.
 
-    # Last, so the catalog never names a bundle that isn't on disk yet.
-    _write_atomic(out_dir / "catalog.json", json.dumps(catalog, indent=2, ensure_ascii=False))
-    return report
+    Order matters: reader files, then the bundle, then the catalog last — so the
+    catalog never names a bundle that isn't on disk, and any failure before the
+    catalog write leaves ``catalog.json`` byte-identical.
+    """
+    site_dir = Path(site_dir)
+    write_reader_files(site_dir)
+    _write_atomic(site_dir / COURSES_DIR / bundle_filename(bundle.course.id), bundle.to_json())
+    entry = catalog_entry(bundle, with_provenance=True)
+    _write_catalog(site_dir, upsert_entry(read_site_catalog(site_dir), entry))
+    return entry
+
+
+def unpublish(site_dir: Path, course_id: str) -> bool:
+    """Remove a course's catalog entry and bundle, and nothing else. False if absent."""
+    site_dir = Path(site_dir)
+    if not valid_course_id(course_id):
+        return False
+    catalog = read_site_catalog(site_dir)
+    kept = [e for e in catalog["entries"] if e.get("id") != course_id]
+    bundle = site_dir / COURSES_DIR / bundle_filename(course_id)
+    listed = len(kept) != len(catalog["entries"])
+    if not listed and not bundle.exists():
+        return False
+    if listed:
+        _write_catalog(site_dir, {**catalog, "entries": kept})  # catalog first: never a dead link
+    bundle.unlink(missing_ok=True)
+    return True
+
+
+def publish_report(bundle: CourseBundle, entry: dict[str, Any], site_dir: Path) -> dict[str, Any]:
+    """What a reader will find missing. It warns; publishing already happened."""
+    lessons = bundle.lessons
+    ordered = [ls.id for _, _, ls in bundle.course.all_lessons()]
+    lens_ids = {lens["id"] for lens in available_lenses()}
+    p = bundle.provenance
+    return {
+        "courseId": bundle.course.id,
+        "title": bundle.course.title,
+        "siteDir": str(site_dir),
+        "bundle": entry["url"],
+        "publishedAt": bundle.published_at,
+        "lessons": len(ordered),
+        "unwritten": [lid for lid in ordered if lid not in lessons],
+        "missingLenses": [
+            lid for lid in ordered if lid in lessons and not lens_ids <= set(lessons[lid].lenses)
+        ],
+        "missingFaq": [lid for lid in ordered if lid in lessons and not lessons[lid].faq],
+        "humanReviewed": p.human_reviewed,
+        "reviewer": p.reviewer,
+        "authorModel": p.author_model,
+        "enriched": list(p.enriched),
+    }
+
+
+def site_status(site_dir: Path) -> dict[str, Any]:
+    """What is in the site right now, for the Studio's *Published · date* labels."""
+    site_dir = Path(site_dir)
+    catalog = read_site_catalog(site_dir)
+    return {
+        "dir": str(site_dir),
+        "exists": (site_dir / "catalog.json").is_file(),
+        "courses": [
+            {
+                "id": e["id"],
+                "title": e.get("title", ""),
+                "publishedAt": e.get("publishedAt", 0),
+                "humanReviewed": e.get("humanReviewed"),
+            }
+            for e in catalog["entries"]
+        ],
+    }
