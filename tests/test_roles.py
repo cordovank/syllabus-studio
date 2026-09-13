@@ -98,3 +98,4 @@ def test_env_file_values_reach_os_environ_but_the_real_environment_wins(
     assert os.environ["SS_TEST_ONLY_FROM_FILE"] == "file", "libraries reading os.environ see it"
     assert os.environ["SS_TEST_SET_IN_SHELL"] == "shell", "an explicit variable beats the file"
     monkeypatch.delenv("SS_TEST_ONLY_FROM_FILE")
+

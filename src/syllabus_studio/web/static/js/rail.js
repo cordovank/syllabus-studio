@@ -85,7 +85,8 @@ export function renderPicker() {
 
 export function renderCapChip() {
   const h = S.health;
-  const on = can("authorCourses");
+  // The reader app's light answers "is there a tutor", the one live thing a reader uses.
+  const on = can("liveTutor");
   $("capLed").setAttribute("data-off", String(!on));
   if (!h) {
     $("capText").textContent = "connecting…";

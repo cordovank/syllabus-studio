@@ -1,4 +1,4 @@
-/** Course overview, lesson reader, quiz, progress and lesson generation. */
+/** Course overview, lesson reader, quiz and progress. Writing lessons is the Studio's job. */
 
 import { api, errCopy } from "./api.js";
 import { esc, inl, prose } from "./markup.js";
@@ -90,36 +90,23 @@ export function renderOverview() {
   $("stage").innerHTML = h;
 }
 
+/** The reader app only ever talks about the reader role; authoring is the Studio's. */
 function providerBanner() {
-  if (can("authorCourses")) return "";
-
-  const llm = (S.health && S.health.llm && S.health.llm.author) || {};
+  const llm = (S.health && S.health.llm && S.health.llm.reader) || {};
   const provider = llm.provider || "none";
 
-  // Chosen on purpose, not broken: a reader-only install. Say what works.
-  if (provider === "none") {
-    return (
-      '<div class="banner"><span>This install is set up for <b>reading</b>. Courses from the catalog work fully; ' +
-      "building courses and writing lessons needs an authoring model.</span></div>"
-    );
-  }
-
-  if (provider === "echo") {
-    return (
-      '<div class="banner"><span>Running on the <b>offline provider</b> — lessons are placeholder text. ' +
-      "Pick a provider in <code>.env</code> (<code>anthropic</code> or <code>ollama</code>), then restart.</span></div>"
-    );
-  }
+  // No reader model is a normal setup, not a fault: stored lenses and the FAQ
+  // still work, and the lesson page says so where it matters.
+  if (provider === "none" || can("liveTutor")) return "";
 
   // A provider that probes itself tells us exactly what's wrong — say that
   // rather than a generic "not configured".
   if (llm.detail) {
-    return `<div class="banner"><span><b>${esc(provider)}</b> isn't ready — ${esc(llm.detail)}</span></div>`;
+    return `<div class="banner"><span>The tutor (<b>${esc(provider)}</b>) isn't ready — ${esc(llm.detail)}</span></div>`;
   }
-
   return (
-    '<div class="banner"><span>No model is configured, so lessons can\'t be written. ' +
-    "Check <code>.env</code> and the terminal running the server.</span></div>"
+    `<div class="banner"><span>The tutor (<b>${esc(provider)}</b>) isn't answering. ` +
+    "Lessons still work; asking questions doesn't.</span></div>"
   );
 }
 
@@ -153,22 +140,15 @@ export function renderLesson() {
     "</div>";
 
   if (!content) {
+    // In preview this is a hole the author can still fill; published, it would be
+    // a hole the reader is stuck with — which is why the Studio shows it first.
     $("stage").innerHTML =
       head +
-      '<div class="state">' +
-      (S.generating
-        ? '<div class="spinner"></div><h2>Writing this lesson…</h2><p>The explanation, key terms, a worked example and a set of checks. This takes 20–60 seconds.</p>'
-        : can("authorCourses")
-          ? '<h2>This lesson hasn\'t been written yet</h2>' +
-            "<p>It will be written from the syllabus and the module it sits in — explanation, key terms, a worked example, questions to check yourself, and practice.</p>" +
-            '<button class="btn btn-primary" id="genBtn">Write this lesson</button>'
-          : '<h2>This lesson hasn\'t been written yet</h2>' +
-            "<p>This copy of the course doesn't include it, and writing lessons needs an authoring model, which this install doesn't have.</p>") +
-      "</div><div id=\"genErr\"></div>" +
+      '<div class="state"><h2>This lesson hasn\'t been written yet</h2>' +
+      "<p>Readers would see this page if the course were published now. Write it in the Studio, then refresh.</p>" +
+      `<a class="btn btn-primary" href="/studio">Write it in the Studio →</a>` +
+      "</div>" +
       navRow();
-
-    const g = $("genBtn");
-    if (g) g.addEventListener("click", () => generateLesson(S.lessonId));
     return;
   }
 
@@ -248,7 +228,6 @@ export function renderLesson() {
     '<div class="block" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">' +
     `<button class="btn ${prog.done ? "" : "btn-primary"}" id="doneBtn">` +
     `${prog.done ? "Mark as not complete" : "Mark lesson complete"}</button>` +
-    (can("authorCourses") ? '<button class="btn btn-ghost btn-sm" id="regenBtn">Rewrite this lesson</button>' : "") +
     "</div>" +
     navRow();
 
@@ -282,13 +261,6 @@ function wireLesson(content, ref) {
       const cur = ((S.course.progress || {})[S.lessonId] || {}).done;
       await patchProgress(S.lessonId, { done: !cur, built: true });
       renderLesson();
-    });
-
-  const regen = $("regenBtn");
-  if (regen)
-    regen.addEventListener("click", () => {
-      delete S.lessons[S.lessonId];
-      generateLesson(S.lessonId, true);
     });
 
   mountTutor.wire(content, ref);
@@ -326,33 +298,6 @@ function onQuizClick(ev, content, quiz) {
   }
 }
 
-/* -------------------------------------------------------------- generation */
-
-export async function generateLesson(lessonId, force = false) {
-  if (S.generating || !S.course) return;
-  S.generating = true;
-  if (S.lessonId === lessonId) renderLesson();
-
-  try {
-    const content = await api.generateLesson(S.course.id, lessonId, force);
-    S.lessons[lessonId] = content;
-    S.course.progress[lessonId] = { ...(S.course.progress[lessonId] || {}), built: true };
-  } catch (e) {
-    S.generating = false;
-    if (S.lessonId === lessonId) {
-      renderLesson();
-      const box = $("genErr");
-      const msg = errCopy(e);
-      if (box && msg) box.innerHTML = `<div class="err"><b>Couldn't write the lesson</b>${esc(msg)}</div>`;
-    }
-    return;
-  }
-
-  S.generating = false;
-  renderRail();
-  if (S.lessonId === lessonId) renderLesson();
-}
-
 /* ------------------------------------------------------------- navigation */
 
 export async function goLesson(lessonId) {
@@ -377,10 +322,9 @@ export async function goLesson(lessonId) {
       if (S.lessonId === lessonId) renderLesson();
       return;
     } catch {
-      /* stored copy is gone; fall through and write it again */
+      /* stored copy is gone; the page already says the lesson isn't written */
     }
   }
-  if (can("authorCourses")) generateLesson(lessonId);
 }
 
 export async function openCourse(course, lessonId) {

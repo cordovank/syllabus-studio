@@ -484,3 +484,42 @@ h1.lesson-title{font-size:clamp(28px,4.4vw,38px);letter-spacing:-.028em;line-hei
 
 .rail-foot .btn-sm{padding:4px 8px}
 .foot-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;width:100%}
+
+a.btn{text-decoration:none}
+/* .btn sets display, which would otherwise beat the hidden attribute */
+.btn[hidden]{display:none}
+
+/* ---------- studio ---------- */
+.wrap-wide{max-width:960px}
+.studio-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+.studio-head h1{font-size:26px;letter-spacing:-.025em;line-height:1.15}
+.studio-head p{color:var(--ink-3);font-size:13.5px;margin-top:4px}
+.studio-actions{display:flex;gap:8px;flex-wrap:wrap}
+.pipeline{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.pipe-mod{
+  padding:10px 16px;background:var(--surface-2);border-bottom:1px solid var(--line);
+  display:flex;gap:10px;align-items:baseline;border-left:4px solid var(--hue,var(--line-2))
+}
+.pipe-mod h2{font-size:14px;letter-spacing:-.01em}
+.pipe-row{
+  display:grid;grid-template-columns:52px minmax(0,1fr) auto auto;gap:14px;align-items:center;
+  padding:10px 16px;border-bottom:1px solid var(--line)
+}
+.pipe-row:last-child{border-bottom:0}
+.pipe-id{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+.pipe-title{font-size:14.5px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pipe-state{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);display:flex;align-items:center;gap:6px;white-space:nowrap}
+.pipe-state::before{content:"";width:8px;height:8px;border-radius:50%;border:1.5px solid var(--line-2)}
+.pipe-state[data-state="written"]{color:var(--good)}
+.pipe-state[data-state="written"]::before{background:var(--good);border-color:var(--good)}
+.pipe-state[data-state="writing"]{color:var(--accent-ink)}
+.pipe-state[data-state="writing"]::before{border-color:var(--accent);border-top-color:transparent;animation:spin .8s linear infinite}
+.pipe-state[data-state="failed"]{color:var(--bad)}
+.pipe-state[data-state="failed"]::before{background:var(--bad);border-color:var(--bad)}
+.pipe-err{grid-column:2 / -1;font-size:12.5px;color:var(--bad);margin-top:-4px}
+@media (max-width:640px){
+  .pipe-row{grid-template-columns:minmax(0,1fr) auto}
+  .pipe-id{display:none}
+  .pipe-state{grid-column:1}
+  .pipe-err{grid-column:1 / -1}
+}

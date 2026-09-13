@@ -24,16 +24,31 @@ def test_health_reports_the_wiring(client) -> None:
     assert {lens["id"] for lens in body["lenses"]} >= {"eli5", "analogy", "picture", "rigor"}
 
 
-def test_index_and_static_are_served(client) -> None:
-    assert client.get("/").status_code == 200
-    assert client.get("/static/css/app.css").status_code == 200
-    assert client.get("/static/js/main.js").status_code == 200
+def test_pages_and_static_are_served(client) -> None:
+    for path in ("/studio", "/reader", "/static/css/app.css", "/static/js/main.js"):
+        assert client.get(path).status_code == 200, path
+    assert client.get("/static/js/studio.js").status_code == 200
+
+
+def test_the_front_door_is_the_studio(client) -> None:
+    # This server is the author's tool; readers get the published reader, not this.
+    res = client.get("/", follow_redirects=False)
+    assert res.is_redirect
+    assert res.headers["location"] == "/studio"
+
+
+def test_the_studio_opens_without_an_author_model(tmp_path: Path) -> None:
+    with _app(tmp_path, author="none") as client:
+        assert client.get("/api/v1/health").json()["capabilities"]["authorCourses"] is False
+        assert client.get("/studio").status_code == 200
 
 
 def test_the_frontend_is_revalidated_so_an_upgrade_never_runs_stale_js(client) -> None:
     # Asset URLs never change (no build step), so without this a browser keeps old
     # modules that misread a newer /health.
-    for path in ("/", "/static/js/main.js", "/static/js/rail.js", "/static/css/app.css"):
+    pages = ("/studio", "/reader")
+    assets = ("/static/js/main.js", "/static/js/studio.js", "/static/css/app.css")
+    for path in pages + assets:
         assert client.get(path).headers.get("cache-control") == "no-cache", path
 
 

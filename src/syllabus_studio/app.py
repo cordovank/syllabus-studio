@@ -19,7 +19,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 from starlette.types import Scope
@@ -125,8 +125,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "/static", RevalidatingStaticFiles(directory=WEB_DIR / "static"), name="static"
         )
 
+        # This server is the author's tool. Readers get the published static reader
+        # (spec 003) and never run it, so its front door is the Studio.
         @app.get("/", include_in_schema=False)
-        async def index() -> FileResponse:
-            return FileResponse(WEB_DIR / "index.html", headers=NO_CACHE)
+        async def index() -> RedirectResponse:
+            return RedirectResponse("/studio")
+
+        @app.get("/studio", include_in_schema=False)
+        async def studio() -> FileResponse:
+            return FileResponse(WEB_DIR / "studio.html", headers=NO_CACHE)
+
+        # The reader, served here as the author's preview of the product.
+        @app.get("/reader", include_in_schema=False)
+        async def reader() -> FileResponse:
+            return FileResponse(WEB_DIR / "reader.html", headers=NO_CACHE)
 
     return app

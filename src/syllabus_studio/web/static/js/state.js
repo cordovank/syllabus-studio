@@ -9,7 +9,6 @@ export const S = {
   lessons: {},      // lessonId -> LessonContent, for the open course
   lessonId: null,
   openModule: null,
-  generating: false,
   thread: [],       // ask-the-tutor turns for the open lesson
   buildDepth: "standard",
   lenses: [],

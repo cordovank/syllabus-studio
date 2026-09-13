@@ -28,10 +28,8 @@
     </div>
     <div class="topbar-spacer"></div>
     <button class="btn btn-sm" id="catalogBtn">Browse courses</button>
-    <button class="btn btn-primary btn-sm" id="newCourseBtn">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-      New course
-    </button>
+    <!-- Served by the author's server, this page is a preview; the published reader (spec 003) drops this link -->
+    <a class="btn btn-sm" id="studioLink" href="/studio">← Studio</a>
   </header>
 
   <div class="body-row">
@@ -63,46 +61,6 @@
 </div>
 
 <input type="file" id="importFile" accept="application/json,.json" hidden>
-
-<!-- new course -->
-<div class="scrim" id="newSheet" hidden>
-  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="newSheetTitle">
-    <div class="sheet-head">
-      <div style="flex:1 1 auto">
-        <h2 id="newSheetTitle">Turn a syllabus into a course</h2>
-        <p>Paste the syllabus, outline, or reading list. The server reads it and builds modules, lessons, checks, and practice — then writes each lesson when you open it.</p>
-      </div>
-      <button class="icon-btn" id="newSheetClose" aria-label="Close">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
-    </div>
-    <div class="sheet-body">
-      <div class="field">
-        <label for="sylName">Course name <span style="text-transform:none;letter-spacing:0;font-weight:500">— optional, it will be named otherwise</span></label>
-        <input type="text" id="sylName" placeholder="e.g. Applied Machine Learning">
-      </div>
-      <div class="field">
-        <label for="sylText">Syllabus text</label>
-        <textarea id="sylText" placeholder="Paste the course description, learning outcomes, weekly schedule, readings, assessment breakdown — whatever you have."></textarea>
-      </div>
-      <div class="field">
-        <label>Pitch the lessons at</label>
-        <div class="seg" id="depthSeg">
-          <button type="button" data-depth="new" aria-pressed="false">Start from scratch<span>Assume no background</span></button>
-          <button type="button" data-depth="standard" aria-pressed="true">Standard<span>Some background assumed</span></button>
-          <button type="button" data-depth="deep" aria-pressed="false">Go deep<span>Rigorous, technical</span></button>
-        </div>
-      </div>
-      <div id="newSheetMsg"></div>
-    </div>
-    <div class="sheet-foot">
-      <button class="btn btn-ghost btn-sm" id="loadSampleBtn">Load a sample syllabus</button>
-      <div style="flex:1 1 auto"></div>
-      <button class="btn" id="newSheetCancel">Cancel</button>
-      <button class="btn btn-primary" id="buildBtn">Build the course</button>
-    </div>
-  </div>
-</div>
 
 <!-- catalog -->
 <div class="scrim" id="catalogSheet" hidden>

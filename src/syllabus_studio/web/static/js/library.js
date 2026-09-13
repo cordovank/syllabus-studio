@@ -23,7 +23,8 @@ export async function refreshCourses() {
 
 /* -------------------------------------------------------------- build new */
 
-export async function buildCourse() {
+/** `onBuilt(course)` decides what to show next; only the Studio builds courses. */
+export async function buildCourse(onBuilt) {
   const syllabus = $("sylText").value.trim();
   const name = $("sylName").value.trim();
   const msg = $("newSheetMsg");
@@ -50,7 +51,7 @@ export async function buildCourse() {
     closeNewSheet();
     $("sylText").value = "";
     $("sylName").value = "";
-    await openCourse(course);
+    await onBuilt(course);
     toast(`Built “${course.title}” — ${course.modules.length} modules`);
   } catch (e) {
     msg.innerHTML = `<div class="err"><b>Couldn't build the course</b>${esc(errCopy(e))}</div>`;
@@ -152,7 +153,7 @@ export async function deleteCourse() {
     } else {
       S.course = null;
       $("stage").innerHTML =
-        '<div class="state"><h2>No courses yet</h2><p>Paste a syllabus to build one, or install a course from the catalog.</p></div>';
+        '<div class="state"><h2>No courses yet</h2><p>Install one from the catalog, or import a course bundle.</p></div>';
     }
     toast(`Removed “${title}”`);
   } catch (e) {

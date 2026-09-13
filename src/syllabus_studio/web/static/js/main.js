@@ -1,47 +1,21 @@
-/** Boot and wiring. Everything else is a module. */
+/** Reader: boot and wiring. Served at /reader as the author's preview; the Studio boots from studio.js. */
 
 import { api, errCopy } from "./api.js";
 import { flashcardKey, flashcardsOpen, wireFlashcards } from "./flashcards.js";
 import {
-  buildCourse,
-  closeNewSheet,
   deleteCourse,
   exportCourse,
   importPickedFile,
   installEntry,
   openCatalog,
-  openNewSheet,
   pickImportFile,
   refreshCourses,
 } from "./library.js";
 import { goLesson, openCourse, renderOverview } from "./lesson.js";
 import { renderCapChip, renderPicker, renderRail } from "./rail.js";
-import { $, S, can, toast } from "./state.js";
+import { $, S, toast } from "./state.js";
 
 function wireChrome() {
-  $("newCourseBtn").addEventListener("click", openNewSheet);
-  $("newSheetClose").addEventListener("click", closeNewSheet);
-  $("newSheetCancel").addEventListener("click", closeNewSheet);
-  $("buildBtn").addEventListener("click", buildCourse);
-  $("newSheet").addEventListener("click", (e) => {
-    if (e.target === $("newSheet")) closeNewSheet();
-  });
-
-  $("loadSampleBtn").addEventListener("click", async () => {
-    $("sylText").value = await api.sampleSyllabus();
-    $("sylName").value = "";
-    $("sylText").focus();
-  });
-
-  $("depthSeg").addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-depth]");
-    if (!b) return;
-    S.buildDepth = b.getAttribute("data-depth");
-    $("depthSeg")
-      .querySelectorAll("button")
-      .forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-  });
-
   $("coursePicker").addEventListener("change", async function () {
     if (S.course && S.course.id === this.value) return;
     try {
@@ -104,25 +78,13 @@ function wireChrome() {
       }
       if (!$("catalogSheet").hidden) {
         $("catalogSheet").hidden = true;
-        return;
       }
-      if (!$("newSheet").hidden) closeNewSheet();
       return;
     }
     if (!flashcardsOpen()) return;
     if (e.key === " ") e.preventDefault();
     flashcardKey(e.key);
   });
-}
-
-/** "New course" and "Build the course" need the author role. */
-function gateAuthoring() {
-  const ok = can("authorCourses");
-  for (const id of ["newCourseBtn", "buildBtn"]) {
-    const b = $(id);
-    b.disabled = !ok;
-    b.title = ok ? "" : "Building a course needs an authoring model, and none is configured.";
-  }
 }
 
 async function boot() {
@@ -140,7 +102,6 @@ async function boot() {
     return;
   }
   renderCapChip();
-  gateAuthoring();
 
   try {
     await refreshCourses();
@@ -151,23 +112,17 @@ async function boot() {
 
   if (!S.courses.length) {
     renderPicker();
-    if (can("authorCourses")) {
-      $("stage").innerHTML =
-        '<div class="state"><h2>No courses yet</h2>' +
-        "<p>Paste a syllabus to build one, or install a course from the catalog.</p>" +
-        '<button class="btn btn-primary" id="emptyNew">Turn a syllabus into a course</button></div>';
-      $("emptyNew").addEventListener("click", openNewSheet);
-    } else {
-      $("stage").innerHTML =
-        '<div class="state"><h2>No courses yet</h2>' +
-        "<p>Install one from the catalog. This install has no authoring model, so it reads courses rather than building them.</p>" +
-        '<button class="btn btn-primary" id="emptyNew">Browse courses</button></div>';
-      $("emptyNew").addEventListener("click", openCatalog);
-    }
+    $("stage").innerHTML =
+      '<div class="state"><h2>No courses yet</h2>' +
+      "<p>Build one in the Studio, or install a course from the catalog.</p>" +
+      '<a class="btn btn-primary" href="/studio">Open the Studio</a></div>';
     return;
   }
 
-  const course = await api.getCourse(S.courses[0].id);
+  // The Studio links here as ?course=<id> to preview the course it has open.
+  const wanted = new URLSearchParams(location.search).get("course");
+  const pick = S.courses.find((c) => c.id === wanted) || S.courses[0];
+  const course = await api.getCourse(pick.id);
   await openCourse(course);
 
   // Open the first lesson of a sample course so the page shows what it does.
