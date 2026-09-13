@@ -1,8 +1,7 @@
-/** Creating, importing, exporting and installing courses. */
+/** Studio: creating courses. The reader never builds, imports or removes anything. */
 
 import { api, errCopy } from "./api.js";
 import { esc } from "./markup.js";
-import { openCourse } from "./lesson.js";
 import { $, S, can, toast } from "./state.js";
 
 export function openNewSheet() {
@@ -57,106 +56,5 @@ export async function buildCourse(onBuilt) {
     msg.innerHTML = `<div class="err"><b>Couldn't build the course</b>${esc(errCopy(e))}</div>`;
   } finally {
     btn.disabled = false;
-  }
-}
-
-/* ------------------------------------------------------------ import/export */
-
-export function exportCourse() {
-  if (!S.course) return;
-  // A plain navigation, so the browser handles the download and the filename.
-  window.location.href = api.exportUrl(S.course.id);
-}
-
-export function pickImportFile() {
-  $("importFile").click();
-}
-
-export async function importPickedFile(file) {
-  if (!file) return;
-  try {
-    const bundle = JSON.parse(await file.text());
-    const course = await api.importBundle(bundle);
-    await refreshCourses();
-    await openCourse(course);
-    toast(`Installed “${course.title}”`);
-  } catch (e) {
-    toast(e instanceof SyntaxError ? "That file isn't a valid course bundle." : errCopy(e), "bad");
-  } finally {
-    $("importFile").value = "";
-  }
-}
-
-/* ----------------------------------------------------------------- catalog */
-
-export async function openCatalog() {
-  const sheet = $("catalogSheet");
-  const list = $("catalogList");
-  sheet.hidden = false;
-  list.innerHTML = '<div class="state" style="padding:30px"><div class="spinner"></div><p>Loading the catalog…</p></div>';
-
-  try {
-    const catalog = await api.catalog();
-    if (!catalog.entries.length) {
-      list.innerHTML =
-        '<div class="state"><h2>Nothing published yet</h2><p>Point <code>SS_CATALOG_URL</code> at a JSON index of course bundles to list them here. Any static URL will do.</p></div>';
-      return;
-    }
-    list.innerHTML = catalog.entries
-      .map(
-        (e) =>
-          '<div class="catalog-item"><div style="flex:1 1 auto;min-width:0">' +
-          `<h3>${esc(e.title)}</h3><p>${esc(e.description)}</p>` +
-          '<div class="catalog-meta">' +
-          (e.author ? `<span class="tag">${esc(e.author)}</span>` : "") +
-          (e.license ? `<span class="tag">${esc(e.license)}</span>` : "") +
-          (e.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join("") +
-          "</div></div>" +
-          `<button class="btn btn-sm btn-primary" data-install="${esc(e.id)}">Install</button></div>`,
-      )
-      .join("");
-  } catch (e) {
-    list.innerHTML = `<div class="err"><b>Couldn't load the catalog</b>${esc(errCopy(e))}</div>`;
-  }
-}
-
-export async function installEntry(entryId, btn) {
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "Installing…";
-  }
-  try {
-    const course = await api.installEntry(entryId);
-    await refreshCourses();
-    $("catalogSheet").hidden = true;
-    await openCourse(course);
-    toast(`Installed “${course.title}”`);
-  } catch (e) {
-    toast(errCopy(e), "bad");
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = "Install";
-    }
-  }
-}
-
-/* ------------------------------------------------------------------ delete */
-
-export async function deleteCourse() {
-  if (!S.course) return;
-  const title = S.course.title;
-  try {
-    await api.deleteCourse(S.course.id);
-    await refreshCourses();
-    if (S.courses.length) {
-      await openCourse(await api.getCourse(S.courses[0].id));
-    } else {
-      S.course = null;
-      $("stage").innerHTML =
-        '<div class="state"><h2>No courses yet</h2><p>Install one from the catalog, or import a course bundle.</p></div>';
-    }
-    toast(`Removed “${title}”`);
-  } catch (e) {
-    toast(errCopy(e), "bad");
   }
 }

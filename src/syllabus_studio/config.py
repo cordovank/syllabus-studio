@@ -100,6 +100,10 @@ class Settings(BaseSettings):
 
     seed_demo_course: bool = True
 
+    # --- site --------------------------------------------------------------
+    site_dir: Path = REPO_ROOT / "site"
+    """Where ``syllabus-studio site build`` writes the published reader (spec 003)."""
+
     # --- catalog -----------------------------------------------------------
     catalog_url: str = ""
     """URL of a JSON index of shareable course bundles. Empty = local only."""

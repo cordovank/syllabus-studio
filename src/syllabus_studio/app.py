@@ -17,9 +17,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 from starlette.types import Scope
@@ -31,6 +31,12 @@ from syllabus_studio.config import Settings, get_settings
 from syllabus_studio.core.models import LessonProgress
 from syllabus_studio.llm import get_provider
 from syllabus_studio.storage import CourseBundle, CourseStore, get_store
+from syllabus_studio.storage.site import (
+    READER_FILES,
+    course_id_from_filename,
+    site_bundle,
+    site_catalog,
+)
 
 log = logging.getLogger("syllabus_studio")
 
@@ -135,9 +141,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         async def studio() -> FileResponse:
             return FileResponse(WEB_DIR / "studio.html", headers=NO_CACHE)
 
-        # The reader, served here as the author's preview of the product.
+        # The published reader, served here as the author's preview. It reads the same
+        # catalog.json and bundles a site build writes, generated from the store on
+        # each request, and only the files READER_FILES lists — so a file the build
+        # would leave out is missing here too, not just on the live site.
+        reader_files = {dest: WEB_DIR / source for source, dest in READER_FILES}
+
         @app.get("/reader", include_in_schema=False)
-        async def reader() -> FileResponse:
-            return FileResponse(WEB_DIR / "reader.html", headers=NO_CACHE)
+        async def reader_root() -> RedirectResponse:
+            # The trailing slash is load-bearing: the reader's paths are relative.
+            return RedirectResponse("/reader/")
+
+        @app.get("/reader/catalog.json", include_in_schema=False)
+        async def reader_catalog(request: Request) -> JSONResponse:
+            return JSONResponse(await site_catalog(request.app.state.store), headers=NO_CACHE)
+
+        @app.get("/reader/courses/{name}", include_in_schema=False)
+        async def reader_bundle(name: str, request: Request) -> Response:
+            course_id = course_id_from_filename(name)
+            bundle = await site_bundle(request.app.state.store, course_id) if course_id else None
+            if bundle is None:
+                return Response(status_code=404)
+            return Response(bundle.to_json(), media_type="application/json", headers=NO_CACHE)
+
+        @app.get("/reader/{path:path}", include_in_schema=False)
+        async def reader_file(path: str) -> Response:
+            source = reader_files.get(path or "index.html")
+            if source is None:
+                return Response(status_code=404)
+            return FileResponse(source, headers=NO_CACHE)
 
     return app

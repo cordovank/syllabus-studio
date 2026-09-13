@@ -25,9 +25,8 @@ def test_health_reports_the_wiring(client) -> None:
 
 
 def test_pages_and_static_are_served(client) -> None:
-    for path in ("/studio", "/reader", "/static/css/app.css", "/static/js/main.js"):
+    for path in ("/studio", "/reader/", "/static/css/app.css", "/static/js/studio.js"):
         assert client.get(path).status_code == 200, path
-    assert client.get("/static/js/studio.js").status_code == 200
 
 
 def test_the_front_door_is_the_studio(client) -> None:
@@ -46,8 +45,8 @@ def test_the_studio_opens_without_an_author_model(tmp_path: Path) -> None:
 def test_the_frontend_is_revalidated_so_an_upgrade_never_runs_stale_js(client) -> None:
     # Asset URLs never change (no build step), so without this a browser keeps old
     # modules that misread a newer /health.
-    pages = ("/studio", "/reader")
-    assets = ("/static/js/main.js", "/static/js/studio.js", "/static/css/app.css")
+    pages = ("/studio", "/reader/", "/reader/catalog.json")
+    assets = ("/static/js/studio.js", "/reader/static/js/reader.js", "/static/css/app.css")
     for path in pages + assets:
         assert client.get(path).headers.get("cache-control") == "no-cache", path
 

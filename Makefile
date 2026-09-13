@@ -1,4 +1,4 @@
-.PHONY: run dev test lint fmt typecheck clean free-port
+.PHONY: run dev test test-py test-js site lint fmt typecheck clean free-port
 
 PORT := $(shell grep -m1 '^SS_PORT=' .env 2>/dev/null | cut -d= -f2)
 PORT := $(if $(PORT),$(PORT),8000)
@@ -14,8 +14,18 @@ dev: free-port
 free-port:
 	@bash scripts/free-port.sh $(PORT)
 
-test:
+test: test-py test-js
+
+test-py:
 	./.venv/bin/pytest -q
+
+# The published reader's logic runs in the browser; node's built-in runner, no deps.
+test-js:
+	node --test tests/js/*.test.mjs
+
+# Static reader + catalog + bundles into ./site (open with: python -m http.server -d site)
+site:
+	./.venv/bin/python -m syllabus_studio.cli site build
 
 lint:
 	./.venv/bin/ruff check src tests

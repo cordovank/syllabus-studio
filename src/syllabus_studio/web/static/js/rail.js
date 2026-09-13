@@ -1,7 +1,7 @@
 /** The left rail: progress ring, module accordion, lesson list. */
 
 import { esc } from "./markup.js";
-import { $, S, can, courseStats, hueOf, lessonState } from "./state.js";
+import { $, S, courseStats, hueOf, lessonState } from "./state.js";
 
 function ringSvg(pct) {
   const r = 22;
@@ -48,12 +48,12 @@ export function renderRail() {
         .map((l) => {
           const state = lessonState(c, l.id);
           return (
-            `<li><button class="lesson-btn" data-lesson="${esc(l.id)}" ` +
+            `<li><a class="lesson-btn" href="${esc(lessonHref(c.id, l.id))}" ` +
             `aria-current="${S.lessonId === l.id}">` +
             `<span class="dot" data-state="${state}">${TICK}</span>` +
             `<span class="lesson-name">${esc(l.title)}</span>` +
             `<span class="lesson-min">${l.minutes || 12}m</span>` +
-            `</button></li>`
+            `</a></li>`
           );
         })
         .join("");
@@ -73,32 +73,10 @@ export function renderRail() {
     .join("");
 }
 
-export function renderPicker() {
-  $("coursePicker").innerHTML = S.courses
-    .map(
-      (c) =>
-        `<option value="${esc(c.id)}"${S.course && S.course.id === c.id ? " selected" : ""}>` +
-        `${esc(c.title)}${c.demo ? "  (sample)" : ""}</option>`,
-    )
-    .join("");
-}
+/* ------------------------------------------------------------------ routes */
 
-export function renderCapChip() {
-  const h = S.health;
-  // The reader app's light answers "is there a tutor", the one live thing a reader uses.
-  const on = can("liveTutor");
-  $("capLed").setAttribute("data-off", String(!on));
-  if (!h) {
-    $("capText").textContent = "connecting…";
-    return;
-  }
-  const llm = h.llm || {};
-  const name = (role) => (llm[role] && llm[role].provider) || "none";
-  // Always name both roles. Collapsing a shared provider to one word read as
-  // "which role am I?" rather than "which model serves each job".
-  const store = (h.storage && h.storage.backend) || "?";
-  $("capText").textContent = `author ${name("author")} · reader ${name("reader")} · ${store}`;
-  $("capChip").title =
-    "author: builds courses, writes and enriches lessons\n" +
-    "reader: the ask box and lenses that weren't precomputed";
-}
+// Hash routes work on every static host with no rewrite rules, and survive a
+// sub-path such as GitHub Pages' /<repo>/.
+export const courseHref = (courseId) => `#/course/${encodeURIComponent(courseId)}`;
+export const lessonHref = (courseId, lessonId) =>
+  `${courseHref(courseId)}/lesson/${encodeURIComponent(lessonId)}`;

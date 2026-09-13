@@ -7,6 +7,7 @@
     syllabus-studio enrich <course-id> [--lenses] [--faq] [--force]
     syllabus-studio publish <course-id> -o applied-ml.course.json [--reviewed-by NAME]
     syllabus-studio list
+    syllabus-studio site build [-o site/]
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from syllabus_studio.core.lessons import LessonError, write_lesson
 from syllabus_studio.core.models import LessonProgress, now_ms
 from syllabus_studio.llm import get_provider
 from syllabus_studio.storage import CourseBundle, Provenance, get_store, suggested_filename
+from syllabus_studio.storage.site import build_site
 
 
 async def _with_store(fn):  # noqa: ANN001, ANN202
@@ -185,6 +187,15 @@ async def _cmd_publish(  # noqa: ANN001
     return 0
 
 
+async def _cmd_site_build(settings, store, *, out: Path | None) -> int:  # noqa: ANN001
+    report = await build_site(store, out or settings.site_dir)
+    print(f"Wrote {report.out_dir}  ({len(report.courses)} courses)")
+    for name in report.removed:
+        print(f"  removed {name} (course no longer exists)")
+    print(f"Open it:  python -m http.server -d {report.out_dir}  →  http://localhost:8000/")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="syllabus-studio", description=__doc__)
     parser.add_argument("--version", action="version", version=__version__)
@@ -216,6 +227,11 @@ def main(argv: list[str] | None = None) -> int:
     p_publish.add_argument("-o", "--out", type=Path)
     p_publish.add_argument("--reviewed-by", default="", metavar="NAME")
     p_publish.add_argument("--force", action="store_true", help="redo existing enrichment")
+
+    p_site = sub.add_parser("site", help="the published reader: static files for any host")
+    site_sub = p_site.add_subparsers(dest="site_command", required=True)
+    p_site_build = site_sub.add_parser("build", help="write the reader and every course")
+    p_site_build.add_argument("-o", "--out", type=Path, help="default: SS_SITE_DIR (./site)")
 
     args = parser.parse_args(argv)
 
@@ -254,6 +270,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
         )
+    if args.command == "site" and args.site_command == "build":
+        return asyncio.run(_with_store(lambda s, st: _cmd_site_build(s, st, out=args.out)))
     if args.command == "import":
         return asyncio.run(_with_store(lambda s, st: _cmd_import(s, st, path=args.path)))
     return 1

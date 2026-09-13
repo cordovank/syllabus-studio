@@ -199,6 +199,7 @@ mark{background:var(--highlight); color:var(--highlight-ink); padding:.08em .26e
   background:transparent;border:0;border-left:2px solid var(--line);
   border-radius:0 8px 8px 0; padding:7px 9px 7px 10px; margin-left:18px; cursor:pointer;
   width:calc(100% - 18px);
+  color:inherit;text-decoration:none;box-sizing:border-box;
 }
 .lesson-btn:hover{background:var(--surface-2)}
 .lesson-btn[aria-current="true"]{background:var(--accent-wash); border-left-color:var(--hue,var(--accent))}
@@ -523,3 +524,11 @@ a.btn{text-decoration:none}
   .pipe-state{grid-column:1}
   .pipe-err{grid-column:1 / -1}
 }
+
+/* ---------- published reader ---------- */
+a.mark{color:inherit;text-decoration:none}
+/* home has no course, so no rail and nothing for the drawer button to open */
+.app[data-view="home"] .rail,
+.app[data-view="home"] .rail-backdrop,
+.app[data-view="home"] .drawer-btn{display:none}
+.home-sub{color:var(--ink-3);font-size:14px}

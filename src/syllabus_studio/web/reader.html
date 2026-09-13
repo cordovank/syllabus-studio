@@ -3,33 +3,34 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Syllabus Studio</title>
-<meta name="description" content="Turn a syllabus into an interactive, self-paced course.">
+<!--
+  Published reader (spec 003). Every path below is relative and routes are hashes,
+  so the site works from any host and any sub-path (e.g. GitHub Pages /<repo>/).
+  Course text is model output from bundles anyone could publish: the CSP forbids
+  inline script, and markup.js escapes before rendering.
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'none'">
+<title>Courses</title>
+<meta name="description" content="Self-paced courses: lessons, checks, flashcards and practice.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🎓</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=JetBrains+Mono:wght@500;700&display=swap">
-<link rel="stylesheet" href="/static/css/app.css">
+<link rel="stylesheet" href="static/css/app.css">
 </head>
 <body>
 
-<div class="app" id="app" data-drawer="closed">
+<div class="app" id="app" data-drawer="closed" data-view="home">
   <header class="topbar">
     <button class="icon-btn drawer-btn" id="drawerBtn" aria-label="Show course contents" aria-expanded="false">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
     </button>
-    <div class="mark">
+    <a class="mark" href="#/">
       <div class="mark-glyph" aria-hidden="true">S</div>
       <div class="mark-name">Syllabus&nbsp;Studio</div>
-    </div>
-    <div class="picker">
-      <span class="eyebrow">Course</span>
-      <select id="coursePicker" aria-label="Choose a course"></select>
-    </div>
+    </a>
     <div class="topbar-spacer"></div>
-    <button class="btn btn-sm" id="catalogBtn">Browse courses</button>
-    <!-- Served by the author's server, this page is a preview; the published reader (spec 003) drops this link -->
-    <a class="btn btn-sm" id="studioLink" href="/studio">← Studio</a>
+    <a class="btn btn-sm" href="#/">All courses</a>
   </header>
 
   <div class="body-row">
@@ -43,38 +44,11 @@
         </div>
       </div>
       <div class="rail-scroll" id="outline"></div>
-      <div class="rail-foot">
-        <div class="foot-row">
-          <span class="cap-chip" id="capChip"><span class="cap-led" id="capLed"></span><span id="capText">checking…</span></span>
-          <div style="flex:1 1 auto"></div>
-          <button class="btn btn-ghost btn-sm" id="exportBtn" title="Download this course as a portable bundle">Export</button>
-          <button class="btn btn-ghost btn-sm" id="importBtn" title="Install a course bundle">Import</button>
-          <button class="btn btn-ghost btn-sm" id="deleteBtn" title="Remove this course">Remove</button>
-        </div>
-      </div>
     </nav>
 
     <main class="main" id="main">
       <div class="wrap" id="stage"></div>
     </main>
-  </div>
-</div>
-
-<input type="file" id="importFile" accept="application/json,.json" hidden>
-
-<!-- catalog -->
-<div class="scrim" id="catalogSheet" hidden>
-  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="catalogTitle">
-    <div class="sheet-head">
-      <div style="flex:1 1 auto">
-        <h2 id="catalogTitle">Community courses</h2>
-        <p>Course bundles anyone can publish and install. Point <code>SS_CATALOG_URL</code> at your own index to share a set with a class or a team.</p>
-      </div>
-      <button class="icon-btn" id="catalogClose" aria-label="Close">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
-    </div>
-    <div class="sheet-body"><div class="catalog-list" id="catalogList"></div></div>
   </div>
 </div>
 
@@ -108,6 +82,6 @@
 
 <div class="toast" id="toast" hidden></div>
 
-<script type="module" src="/static/js/main.js"></script>
+<script type="module" src="static/js/reader.js"></script>
 </body>
 </html>

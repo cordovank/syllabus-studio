@@ -3,15 +3,19 @@
 export const HUES = ["#FF5A36", "#0C8E8E", "#7A4BE0", "#C98A00", "#D6316B", "#2E7BE0", "#3F8F3A"];
 
 export const S = {
-  health: null,
-  courses: [],
+  // shared
   course: null,
+  // reader
+  data: null,       // data.js instance: the reader's only way to catalog, bundles and progress
+  bundle: null,     // the open course's bundle: { course, lessons, provenance }
   lessons: {},      // lessonId -> LessonContent, for the open course
   lessonId: null,
   openModule: null,
-  thread: [],       // ask-the-tutor turns for the open lesson
+  lenses: [],       // [{id, label}] from catalog.json
+  // studio
+  health: null,
+  courses: [],
   buildDepth: "standard",
-  lenses: [],
 };
 
 export const $ = (id) => document.getElementById(id);

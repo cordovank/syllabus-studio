@@ -1,9 +1,11 @@
-/** Course overview, lesson reader, quiz and progress. Writing lessons is the Studio's job. */
+/**
+ * Course overview, lesson reader, quiz and progress. Reads the bundle already in
+ * memory and saves progress through data.js; writing lessons is the Studio's job.
+ */
 
-import { api, errCopy } from "./api.js";
 import { esc, inl, prose } from "./markup.js";
-import { renderPicker, renderRail } from "./rail.js";
-import { $, S, allLessons, can, courseStats, findLesson, hueOf, lessonState, toast } from "./state.js";
+import { lessonHref, renderRail } from "./rail.js";
+import { $, S, allLessons, courseStats, findLesson, hueOf, lessonState } from "./state.js";
 import { openFlashcards } from "./flashcards.js";
 import { mountTutor } from "./tutor.js";
 
@@ -13,19 +15,11 @@ const TICK_SM =
 
 /* ----------------------------------------------------------------- progress */
 
-export async function patchProgress(lessonId, patch) {
+/** Local and synchronous: nothing to roll back. data.js warns once if it can't persist. */
+export function patchProgress(lessonId, patch) {
   if (!S.course) return;
-  const before = S.course.progress[lessonId] || {};
-  S.course.progress[lessonId] = { ...before, ...patch };
+  S.course.progress = S.data.setProgress(S.course.id, lessonId, patch).progress;
   renderRail();
-  try {
-    S.course = await api.setProgress(S.course.id, lessonId, patch);
-    renderRail();
-  } catch (e) {
-    S.course.progress[lessonId] = before;
-    renderRail();
-    toast(errCopy(e), "bad");
-  }
 }
 
 /* ----------------------------------------------------------------- overview */
@@ -39,11 +33,13 @@ export function renderOverview() {
   const st = courseStats(c);
   const mins = allLessons(c).reduce((a, x) => a + (x.l.minutes || 12), 0);
 
+  const prov = (S.bundle && S.bundle.provenance) || {};
   let h = "";
-  h += providerBanner();
   h +=
     '<div class="lesson-head"><div class="crumb">' +
-    `<span class="chip chip-plain">${c.demo ? "Sample course" : "Your course"}</span>` +
+    (prov.humanReviewed
+      ? '<span class="chip chip-plain" style="color:var(--good);border-color:var(--good)">Reviewed</span>'
+      : "") +
     `<span class="chip chip-plain">${esc(c.level || "intermediate")}</span>` +
     `<span class="chip chip-plain">${st.total} lessons · ~${Math.round((mins / 60) * 10) / 10}h</span>` +
     "</div>" +
@@ -77,9 +73,9 @@ export function renderOverview() {
         .map((l) => {
           const done = lessonState(c, l.id) === "done";
           return (
-            `<button class="btn btn-sm" data-goto="${esc(l.id)}"${done ? ' style="border-color:var(--good)"' : ""}>` +
+            `<a class="btn btn-sm" href="${esc(lessonHref(c.id, l.id))}"${done ? ' style="border-color:var(--good)"' : ""}>` +
             (done ? `${TICK_SM} ` : "") +
-            `${esc(l.title)}</button>`
+            `${esc(l.title)}</a>`
           );
         })
         .join("") +
@@ -88,26 +84,6 @@ export function renderOverview() {
   h += "</div>";
 
   $("stage").innerHTML = h;
-}
-
-/** The reader app only ever talks about the reader role; authoring is the Studio's. */
-function providerBanner() {
-  const llm = (S.health && S.health.llm && S.health.llm.reader) || {};
-  const provider = llm.provider || "none";
-
-  // No reader model is a normal setup, not a fault: stored lenses and the FAQ
-  // still work, and the lesson page says so where it matters.
-  if (provider === "none" || can("liveTutor")) return "";
-
-  // A provider that probes itself tells us exactly what's wrong — say that
-  // rather than a generic "not configured".
-  if (llm.detail) {
-    return `<div class="banner"><span>The tutor (<b>${esc(provider)}</b>) isn't ready — ${esc(llm.detail)}</span></div>`;
-  }
-  return (
-    `<div class="banner"><span>The tutor (<b>${esc(provider)}</b>) isn't answering. ` +
-    "Lessons still work; asking questions doesn't.</span></div>"
-  );
 }
 
 /* ------------------------------------------------------------------ lesson */
@@ -140,13 +116,12 @@ export function renderLesson() {
     "</div>";
 
   if (!content) {
-    // In preview this is a hole the author can still fill; published, it would be
-    // a hole the reader is stuck with — which is why the Studio shows it first.
+    // The course shipped without it. The Studio lists these before publishing, so
+    // readers should rarely land here; when they do, keep them moving.
     $("stage").innerHTML =
       head +
-      '<div class="state"><h2>This lesson hasn\'t been written yet</h2>' +
-      "<p>Readers would see this page if the course were published now. Write it in the Studio, then refresh.</p>" +
-      `<a class="btn btn-primary" href="/studio">Write it in the Studio →</a>` +
+      '<div class="state"><h2>This lesson isn\'t available yet</h2>' +
+      "<p>It hasn't been written for this course. The next lesson is below.</p>" +
       "</div>" +
       navRow();
     return;
@@ -242,8 +217,8 @@ function navRow() {
   const next = idx >= 0 && idx < flat.length - 1 ? flat[idx + 1] : null;
   return (
     '<div class="block" style="display:flex;gap:10px;justify-content:space-between;border-top:1px solid var(--line);padding-top:18px">' +
-    (prev ? `<button class="btn btn-sm" data-goto="${esc(prev.l.id)}">← ${esc(prev.l.title)}</button>` : "<span></span>") +
-    (next ? `<button class="btn btn-sm" data-goto="${esc(next.l.id)}">${esc(next.l.title)} →</button>` : "<span></span>") +
+    (prev ? `<a class="btn btn-sm" href="${esc(lessonHref(S.course.id, prev.l.id))}">← ${esc(prev.l.title)}</a>` : "<span></span>") +
+    (next ? `<a class="btn btn-sm" href="${esc(lessonHref(S.course.id, next.l.id))}">${esc(next.l.title)} →</a>` : "<span></span>") +
     "</div>"
   );
 }
@@ -257,9 +232,9 @@ function wireLesson(content, ref) {
 
   const done = $("doneBtn");
   if (done)
-    done.addEventListener("click", async () => {
+    done.addEventListener("click", () => {
       const cur = ((S.course.progress || {})[S.lessonId] || {}).done;
-      await patchProgress(S.lessonId, { done: !cur, built: true });
+      patchProgress(S.lessonId, { done: !cur });
       renderLesson();
     });
 
@@ -289,7 +264,7 @@ function onQuizClick(ev, content, quiz) {
   if (quiz.querySelectorAll(".q[data-answered]").length === content.quiz.length) {
     const right = quiz.querySelectorAll('.q[data-answered="1"]').length;
     $("scoreTag").textContent = `${right} / ${content.quiz.length} correct`;
-    patchProgress(S.lessonId, { done: true, built: true, score: right, total: content.quiz.length });
+    patchProgress(S.lessonId, { done: true, score: right, total: content.quiz.length });
     const db = $("doneBtn");
     if (db) {
       db.textContent = "Mark as not complete";
@@ -300,61 +275,35 @@ function onQuizClick(ev, content, quiz) {
 
 /* ------------------------------------------------------------- navigation */
 
-export async function goLesson(lessonId) {
-  if (!findLesson(S.course, lessonId)) return;
+/** Called by the router; links change the hash rather than calling this directly. */
+export function showLesson(lessonId) {
+  const ref = findLesson(S.course, lessonId);
+  if (!ref) return false;
 
   S.lessonId = lessonId;
-  S.openModule = findLesson(S.course, lessonId).module.id;
-  S.thread = [];
+  S.openModule = ref.module.id;
   renderRail();
   renderLesson();
   $("main").scrollTop = 0;
   $("app").setAttribute("data-drawer", "closed");
   $("drawerBtn").setAttribute("aria-expanded", "false");
-
-  if (S.lessons[lessonId]) return;
-
-  const prog = (S.course.progress || {})[lessonId];
-  if (prog && prog.built) {
-    try {
-      const content = await api.getLesson(S.course.id, lessonId);
-      S.lessons[lessonId] = content;
-      if (S.lessonId === lessonId) renderLesson();
-      return;
-    } catch {
-      /* stored copy is gone; the page already says the lesson isn't written */
-    }
-  }
+  return true;
 }
 
-export async function openCourse(course, lessonId) {
-  S.course = course;
-  S.course.progress = S.course.progress || {};
-  S.lessons = {};
+export function showOverview() {
   S.lessonId = null;
-  S.openModule = null;
-  S.thread = [];
-
-  renderPicker();
   renderRail();
   renderOverview();
+  $("main").scrollTop = 0;
+}
 
-  try {
-    const built = await api.builtLessons(course.id);
-    await Promise.all(
-      built.map(async (lid) => {
-        try {
-          S.lessons[lid] = await api.getLesson(course.id, lid);
-        } catch {
-          /* ignore one missing lesson */
-        }
-      }),
-    );
-    renderRail();
-    if (S.lessonId) renderLesson();
-  } catch {
-    /* the outline is enough to show the course */
-  }
-
-  if (lessonId) goLesson(lessonId);
+/** A bundle holds every lesson, so opening a course is the only fetch it needs. */
+export function openCourse(bundle) {
+  S.bundle = bundle;
+  S.course = bundle.course;
+  S.course.progress = S.data.progress(S.course.id);
+  S.lessons = bundle.lessons || {};
+  S.lessonId = null;
+  S.openModule = null;
+  S.data.touchLibrary(S.course.id);
 }

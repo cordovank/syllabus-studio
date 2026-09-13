@@ -112,7 +112,7 @@ function renderEmpty() {
 
 async function openStudioCourse(course) {
   S.course = course;
-  $("readerLink").href = `/reader?course=${encodeURIComponent(course.id)}`;
+  $("readerLink").href = `/reader/#/course/${encodeURIComponent(course.id)}`;
   rows.clear();
   written = new Set();
   renderPicker();

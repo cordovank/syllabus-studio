@@ -216,9 +216,15 @@ syllabus-studio export applied-ml-62f7f9 -o applied-ml.course.json
 syllabus-studio import applied-ml.course.json
 syllabus-studio enrich applied-ml-62f7f9 [--lenses] [--faq] [--force]
 syllabus-studio publish applied-ml-62f7f9 -o applied-ml.course.json [--reviewed-by NAME]
+syllabus-studio site build [-o site/]
 ```
 
 `build`, `enrich` and `publish` run on the author model.
+
+`site build` writes the reader as static files — the reader pages, `catalog.json`
+and one bundle per course — into `./site`. It needs no model and no server; open
+it with `python -m http.server -d site`, or host the folder anywhere. The Studio's
+**Preview as reader** serves the same reader at `/reader/`.
 
 ---
 

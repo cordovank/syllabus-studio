@@ -1,0 +1,213 @@
+/**
+ * The published reader: boot, routing and the home page (spec 003).
+ *
+ * Runs from static files — catalog.json, course bundles and these modules — on any
+ * host, including a sub-path. Every URL here is relative and every route is a
+ * hash, so nothing depends on where the site is served from.
+ *
+ *   #/                             home: continue + every course
+ *   #/course/<id>                  course overview
+ *   #/course/<id>/lesson/<lid>     lesson
+ */
+
+import { browserStorage, createData } from "./data.js";
+import { flashcardKey, flashcardsOpen, wireFlashcards } from "./flashcards.js";
+import { openCourse, showLesson, showOverview } from "./lesson.js";
+import { esc } from "./markup.js";
+import { courseHref, renderRail } from "./rail.js";
+import { $, S, toast } from "./state.js";
+
+S.data = createData({
+  catalogUrl: new URL("catalog.json", document.baseURI).href,
+  storage: browserStorage(),
+  onStorageError: () =>
+    toast("This browser isn't saving progress, so it will be gone when you close the page.", "bad"),
+});
+
+/* ------------------------------------------------------------------- views */
+
+function setView(view) {
+  $("app").setAttribute("data-view", view);
+}
+
+function stateBox(title, body, action = "") {
+  return `<div class="state"><h2>${esc(title)}</h2><p>${esc(body)}</p>${action}</div>`;
+}
+
+function loading(text) {
+  $("stage").innerHTML = `<div class="state"><div class="spinner"></div><p>${esc(text)}</p></div>`;
+}
+
+function courseCard(entry, doneCount) {
+  const started = doneCount > 0;
+  const meta = [
+    entry.lessonCount ? `${entry.lessonCount} lessons` : "",
+    started && entry.lessonCount ? `${doneCount} done` : "",
+    entry.humanReviewed ? "reviewed" : "",
+    entry.license || "",
+    ...(entry.tags || []),
+  ].filter(Boolean);
+
+  return (
+    '<div class="catalog-item"><div style="flex:1 1 auto;min-width:0">' +
+    `<h3>${esc(entry.title)}</h3>` +
+    (entry.description ? `<p>${esc(entry.description)}</p>` : "") +
+    `<div class="catalog-meta">${meta.map((m) => `<span class="tag">${esc(m)}</span>`).join("")}</div>` +
+    "</div>" +
+    `<a class="btn btn-sm ${started ? "" : "btn-primary"}" href="${esc(courseHref(entry.id))}">` +
+    `${started ? "Continue" : "Start"}</a></div>`
+  );
+}
+
+function doneCount(courseId) {
+  return Object.values(S.data.progress(courseId)).filter((p) => p && p.done).length;
+}
+
+async function renderHome(catalog) {
+  setView("home");
+  S.course = null;
+  S.lessonId = null;
+  document.title = catalog.name;
+
+  if (!catalog.entries.length) {
+    $("stage").innerHTML = stateBox("No courses yet", "Nothing has been published here so far.");
+    return;
+  }
+
+  const byId = new Map(catalog.entries.map((e) => [e.id, e]));
+  const recent = S.data.library().filter((id) => byId.has(id));
+
+  let h =
+    '<div class="lesson-head">' +
+    `<h1 class="lesson-title">${esc(catalog.name)}</h1>` +
+    `<p class="home-sub">${catalog.entries.length} ${catalog.entries.length === 1 ? "course" : "courses"}. ` +
+    "Your progress stays in this browser.</p></div>";
+
+  if (recent.length) {
+    h +=
+      '<div class="block"><div class="block-head"><h2>Continue</h2></div><div class="catalog-list">' +
+      recent.map((id) => courseCard(byId.get(id), doneCount(id))).join("") +
+      "</div></div>";
+  }
+
+  const rest = catalog.entries.filter((e) => !recent.includes(e.id));
+  if (rest.length) {
+    h +=
+      `<div class="block"><div class="block-head"><h2>${recent.length ? "More courses" : "All courses"}</h2></div>` +
+      '<div class="catalog-list">' +
+      rest.map((e) => courseCard(e, doneCount(e.id))).join("") +
+      "</div></div>";
+  }
+
+  $("stage").innerHTML = h;
+  $("main").scrollTop = 0;
+}
+
+/* ------------------------------------------------------------------ router */
+
+function parseHash() {
+  const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+  try {
+    return parts.map(decodeURIComponent);
+  } catch {
+    return [];
+  }
+}
+
+let routeToken = 0;
+
+async function route() {
+  const token = ++routeToken;
+  const [kind, courseId, sub, lessonId] = parseHash();
+
+  let catalog;
+  try {
+    catalog = await S.data.catalog();
+  } catch (e) {
+    if (token !== routeToken) return;
+    setView("home");
+    $("stage").innerHTML = stateBox(
+      "Couldn't load the courses",
+      e.message || "Try again in a moment.",
+      '<button class="btn btn-primary" id="retryBtn">Try again</button>',
+    );
+    $("retryBtn").addEventListener("click", route);
+    return;
+  }
+  if (token !== routeToken) return;
+  S.lenses = catalog.lenses;
+
+  if (kind !== "course" || !courseId) {
+    await renderHome(catalog);
+    return;
+  }
+
+  if (!S.course || S.course.id !== courseId) {
+    setView("course");
+    loading("Opening the course…");
+    let bundle;
+    try {
+      bundle = await S.data.course(courseId);
+    } catch (e) {
+      if (token !== routeToken) return;
+      $("stage").innerHTML = stateBox(
+        "Couldn't open this course",
+        e.message || "Try again in a moment.",
+        '<a class="btn btn-primary" href="#/">All courses</a>',
+      );
+      return;
+    }
+    if (token !== routeToken) return;
+    openCourse(bundle);
+  }
+
+  setView("course");
+  document.title = S.course.title;
+
+  if (sub === "lesson" && lessonId) {
+    // An old link to a lesson the course no longer has lands on the overview.
+    if (!showLesson(lessonId)) location.replace(courseHref(courseId));
+    return;
+  }
+  showOverview();
+}
+
+/* ------------------------------------------------------------------ wiring */
+
+function wire() {
+  $("outline").addEventListener("click", (e) => {
+    const mod = e.target.closest(".mod-btn");
+    if (!mod) return;
+    const id = mod.getAttribute("data-mod");
+    S.openModule = S.openModule === id ? null : id;
+    renderRail();
+  });
+
+  $("drawerBtn").addEventListener("click", function () {
+    const app = $("app");
+    const open = app.getAttribute("data-drawer") === "open";
+    app.setAttribute("data-drawer", open ? "closed" : "open");
+    this.setAttribute("aria-expanded", String(!open));
+  });
+  $("railBackdrop").addEventListener("click", () => {
+    $("app").setAttribute("data-drawer", "closed");
+    $("drawerBtn").setAttribute("aria-expanded", "false");
+  });
+
+  wireFlashcards();
+
+  document.addEventListener("keydown", (e) => {
+    if (!flashcardsOpen()) return;
+    if (e.key === "Escape") {
+      $("fcSheet").hidden = true;
+      return;
+    }
+    if (e.key === " ") e.preventDefault();
+    flashcardKey(e.key);
+  });
+
+  window.addEventListener("hashchange", route);
+}
+
+wire();
+route();
